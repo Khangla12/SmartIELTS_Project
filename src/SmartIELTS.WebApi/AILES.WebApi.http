@@ -1,0 +1,6 @@
+@AILES.WebApi_HostAddress = http://localhost:5294
+
+GET {{AILES.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

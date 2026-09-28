@@ -1,0 +1,17 @@
+﻿{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Chạy WPF Kiosk App (.NET 8)",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/SmartIELTS.WpfApp/SmartIELTS.WpfApp.csproj"
+    },
+    {
+      "name": "Chạy WebApi Swagger (.NET 8)",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/SmartIELTS.WebApi/SmartIELTS.WebApi.csproj"
+    }
+  ]
+}

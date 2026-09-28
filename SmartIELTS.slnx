@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SmartIELTS.Application/SmartIELTS.Application.csproj" />
+    <Project Path="src/SmartIELTS.Domain/SmartIELTS.Domain.csproj" />
+    <Project Path="src/SmartIELTS.Infrastructure/SmartIELTS.Infrastructure.csproj" />
+    <Project Path="src/SmartIELTS.WebApi/SmartIELTS.WebApi.csproj" />
+    <Project Path="src/SmartIELTS.WpfApp/SmartIELTS.WpfApp.csproj" />
+  </Folder>
+</Solution>
