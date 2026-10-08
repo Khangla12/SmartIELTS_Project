@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using SmartIELTS.Application.DTOs;
 using SmartIELTS.Application.GradingStrategies;
 using SmartIELTS.Domain.Common;
@@ -13,7 +13,8 @@ namespace SmartIELTS.WpfApp.Services;
 
 public class LocalExamManager
 {
-    private readonly IServiceProvider _serviceProvider;
+    private IServiceProvider _serviceProvider;
+    private readonly Task _initDbTask;
     public User? CurrentUser { get; private set; }
     public Exam? CurrentExam { get; private set; }
     public ExamSession? CurrentSession { get; private set; }
@@ -45,22 +46,52 @@ public class LocalExamManager
         SmartIELTS.Infrastructure.DependencyInjection.AddInfrastructureServices(services, config);
         _serviceProvider = services.BuildServiceProvider();
 
-        // Ensure DB & Seeder
-        try
+        // Ensure DB & Seeder in background Task to prevent WPF UI thread deadlock
+        _initDbTask = Task.Run(async () =>
         {
-            using var scope = _serviceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<SmartIeltsDbContext>();
-            context.Database.EnsureCreated();
-            SmartIeltsDbSeeder.SeedAsync(context).Wait();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[SmartIELTS LocalExamManager] DB Init: {ex.Message}");
-        }
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<SmartIeltsDbContext>();
+                await context.Database.EnsureCreatedAsync();
+                await SmartIeltsDbSeeder.SeedAsync(context);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SmartIELTS LocalExamManager] DB Init: {ex.Message}");
+                // Auto fallback to SQLite if SQL Server is not reachable
+                if (string.Equals(config["DatabaseProvider"], "SqlServer", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var fallbackServices = new ServiceCollection();
+                        var fallbackConfig = new ConfigurationBuilder()
+                            .AddInMemoryCollection(new Dictionary<string, string?>
+                            {
+                                { "DatabaseProvider", "Sqlite" },
+                                { "ConnectionStrings:SqliteConnection", "Data Source=smartielts_system.db" }
+                            })
+                            .Build();
+                        SmartIELTS.Infrastructure.DependencyInjection.AddInfrastructureServices(fallbackServices, fallbackConfig);
+                        _serviceProvider = fallbackServices.BuildServiceProvider();
+
+                        using var fbScope = _serviceProvider.CreateScope();
+                        var fbContext = fbScope.ServiceProvider.GetRequiredService<SmartIeltsDbContext>();
+                        await fbContext.Database.EnsureCreatedAsync();
+                        await SmartIeltsDbSeeder.SeedAsync(fbContext);
+                    }
+                    catch (Exception fbEx)
+                    {
+                        Console.WriteLine($"[SmartIELTS LocalExamManager] SQLite Fallback Error: {fbEx.Message}");
+                    }
+                }
+            }
+        });
     }
 
     public async Task<User?> LoginAsync(string username, string password)
     {
+        await _initDbTask;
         using var scope = _serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<SmartIeltsDbContext>();
 

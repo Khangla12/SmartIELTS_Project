@@ -1,6 +1,23 @@
-@AILES.WebApi_HostAddress = http://localhost:5294
+@HostAddress = http://localhost:5294
 
-GET {{AILES.WebApi_HostAddress}}/weatherforecast/
+### 1. Test GET Exams List
+GET {{HostAddress}}/api/exams
 Accept: application/json
 
-###
+### 2. Test Candidate Login
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "student",
+  "password": "Student@123"
+}
+
+### 3. Test Teacher Login
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "teacher",
+  "password": "Teacher@123"
+}

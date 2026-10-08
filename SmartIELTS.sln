@@ -1,19 +1,19 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.WpfApp", "src\SmartIELTS.WpfApp\SmartIELTS.WpfApp.csproj", "{474DFD27-0E15-493D-965C-5DA32F93C5EF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.WebApi", "src\SmartIELTS.WebApi\SmartIELTS.WebApi.csproj", "{B199B169-6C08-4706-9AE7-62D86A4D6059}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.Domain", "src\SmartIELTS.Domain\SmartIELTS.Domain.csproj", "{7BFE9A67-9630-4CB0-9281-F37DFC8BA474}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.Application", "src\SmartIELTS.Application\SmartIELTS.Application.csproj", "{F4F211EC-F84D-4DE8-8EFD-2B8ED47FE34B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.Infrastructure", "src\SmartIELTS.Infrastructure\SmartIELTS.Infrastructure.csproj", "{7E9895F0-7ACB-40D6-A15C-D67291E72534}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.WebApi", "src\SmartIELTS.WebApi\SmartIELTS.WebApi.csproj", "{B199B169-6C08-4706-9AE7-62D86A4D6059}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartIELTS.WpfApp", "src\SmartIELTS.WpfApp\SmartIELTS.WpfApp.csproj", "{474DFD27-0E15-493D-965C-5DA32F93C5EF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -1,4 +1,4 @@
-﻿using SmartIELTS.Infrastructure;
+using SmartIELTS.Infrastructure;
 using SmartIELTS.Infrastructure.Data;
 using SmartIELTS.WebApi.Hubs;
 
@@ -60,8 +60,11 @@ app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "SmartIELTS API V1");
-    c.RoutePrefix = string.Empty; // Open Swagger UI directly at root "/"
+    c.RoutePrefix = "swagger";
 });
+
+// Redirect root to /swagger so both http://localhost:5294/ and http://localhost:5294/swagger work
+app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.UseCors();
 app.UseAuthorization();

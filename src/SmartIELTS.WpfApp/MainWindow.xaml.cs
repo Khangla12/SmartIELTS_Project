@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -52,40 +52,48 @@ public partial class MainWindow : Window
         string username = TxtUsername.Text.Trim();
         string password = TxtPassword.Password;
 
-        var user = await _examManager.LoginAsync(username, password);
-        if (user == null)
-        {
-            MessageBox.Show("Tài khoản hoặc mật khẩu không chính xác!", "Lỗi xác thực", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        var exam = await _examManager.GetActiveExamAsync();
-        if (exam == null)
-        {
-            MessageBox.Show("Không tìm thấy đề thi hoạt động!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        await _examManager.StartSessionAsync();
-
-        // Update UI
-        TxtCandidateBadge.Text = $"Thí sinh: {user.FullName} ({user.Username})";
-        ViewLogin.Visibility = Visibility.Collapsed;
-        ViewExam.Visibility = Visibility.Visible;
-
-        // Activate Kiosk Hook
         try
         {
-            _keyboardHook.Install();
+            var user = await _examManager.LoginAsync(username, password);
+            if (user == null)
+            {
+                MessageBox.Show("Tài khoản hoặc mật khẩu không chính xác!", "Lỗi xác thực", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            var exam = await _examManager.GetActiveExamAsync();
+            if (exam == null)
+            {
+                MessageBox.Show("Không tìm thấy đề thi hoạt động!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            await _examManager.StartSessionAsync();
+
+            // Update UI
+            TxtCandidateBadge.Text = $"Thí sinh: {user.FullName} ({user.Username})";
+            ViewLogin.Visibility = Visibility.Collapsed;
+            ViewExam.Visibility = Visibility.Visible;
+
+            // Activate Kiosk Hook
+            try
+            {
+                _keyboardHook.Install();
+            }
+            catch { /* Ignore if no admin */ }
+
+            // Start Timers
+            _examTimer.Start();
+            _autosaveTimer.Start();
+
+            // Load Listening
+            LoadSkillView(SkillType.Listening);
         }
-        catch { /* Ignore if no admin */ }
-
-        // Start Timers
-        _examTimer.Start();
-        _autosaveTimer.Start();
-
-        // Load Listening
-        LoadSkillView(SkillType.Listening);
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Lỗi kết nối cơ sở dữ liệu hoặc hệ thống:\n{ex.Message}\n\nNếu đang dùng SQL Server, hãy đảm bảo SQL Server đang chạy hoặc cấu hình DatabaseProvider = 'Sqlite' trong appsettings.json.", 
+                "Lỗi Khởi Động Bài Thi", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void LoadSkillView(SkillType skill)
