@@ -1,5 +1,6 @@
 ﻿using SmartIELTS.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace SmartIELTS.Infrastructure.Data;
 
@@ -17,6 +18,8 @@ public class SmartIeltsDbContext : DbContext
     public DbSet<CandidateSubmission> CandidateSubmissions => Set<CandidateSubmission>();
     public DbSet<EvaluationReport> EvaluationReports => Set<EvaluationReport>();
     public DbSet<ProctoringLog> ProctoringLogs => Set<ProctoringLog>();
+    public DbSet<ExamDraft> ExamDrafts => Set<ExamDraft>();
+    public DbSet<SpeakingPrompt> SpeakingPrompts => Set<SpeakingPrompt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,6 +58,10 @@ public class SmartIeltsDbContext : DbContext
                   .WithOne(q => q.Section)
                   .HasForeignKey(q => q.SectionId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(s => s.SpeakingPrompts)
+                  .WithOne(p => p.Section)
+                  .HasForeignKey(p => p.SectionId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Question
@@ -82,6 +89,11 @@ public class SmartIeltsDbContext : DbContext
                   .WithOne(p => p.Session)
                   .HasForeignKey(p => p.SessionId)
                   .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(s => s.Drafts)
+                  .WithOne(d => d.Session)
+                  .HasForeignKey(d => d.SessionId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // CandidateSubmission
@@ -104,6 +116,21 @@ public class SmartIeltsDbContext : DbContext
         modelBuilder.Entity<ProctoringLog>(entity =>
         {
             entity.HasKey(e => e.Id);
+        });
+
+        // ExamDraft (Offline-First autosave)
+        modelBuilder.Entity<ExamDraft>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.SessionId, e.SkillType }).IsUnique();
+        });
+
+        // SpeakingPrompt (kịch bản vấn đáp)
+        modelBuilder.Entity<SpeakingPrompt>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.QuestionText).IsRequired();
+            entity.HasIndex(e => new { e.SectionId, e.Part, e.PromptOrder });
         });
     }
 }

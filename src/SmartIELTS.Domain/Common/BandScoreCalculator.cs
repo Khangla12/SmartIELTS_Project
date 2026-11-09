@@ -1,7 +1,26 @@
-﻿namespace SmartIELTS.Domain.Common;
+namespace SmartIELTS.Domain.Common;
 
 public static class BandScoreCalculator
 {
+    /// <summary>
+    /// Số câu của một đề IELTS hoàn chỉnh (Listening / Reading đều 40 câu).
+    /// Đề demo trong hệ thống chỉ có 5 câu/section nên cần quy đổi trước khi tra bảng band.
+    /// </summary>
+    public const int FullTestQuestionCount = 40;
+
+    /// <summary>Quy đổi số câu đúng của một section ngắn về thang 40 câu.</summary>
+    public static int ScaleToFullTest(int correctCount, int totalQuestions, int fullTestQuestions = FullTestQuestionCount)
+    {
+        if (totalQuestions <= 0) return 0;
+
+        int clampedCorrect = Math.Clamp(correctCount, 0, totalQuestions);
+        int scaled = (int)Math.Round(
+            clampedCorrect * (double)fullTestQuestions / totalQuestions,
+            MidpointRounding.AwayFromZero);
+
+        return Math.Clamp(scaled, 0, fullTestQuestions);
+    }
+
     public static double ConvertListeningRawToBand(int rawScore)
     {
         return rawScore switch
@@ -46,15 +65,28 @@ public static class BandScoreCalculator
         };
     }
 
+    /// <summary>Tra band Listening từ số câu đúng của một section bất kỳ (đã tự quy đổi về thang 40).</summary>
+    public static double ConvertListeningRawToBandForSection(int correctCount, int totalQuestions)
+        => ConvertListeningRawToBand(ScaleToFullTest(correctCount, totalQuestions));
+
+    /// <summary>Tra band Reading từ số câu đúng của một section bất kỳ (đã tự quy đổi về thang 40).</summary>
+    public static double ConvertReadingRawToBandForSection(int correctCount, int totalQuestions, bool isAcademic = true)
+        => ConvertReadingRawToBand(ScaleToFullTest(correctCount, totalQuestions), isAcademic);
+
+    public static double RoundToHalfBand(double score)
+    {
+        double decimalPart = score - Math.Floor(score);
+
+        if (decimalPart < 0.25)
+            return Math.Floor(score);
+        if (decimalPart < 0.75)
+            return Math.Floor(score) + 0.5;
+        return Math.Ceiling(score);
+    }
+
     public static double CalculateOverallBand(double l, double r, double w, double s)
     {
         double avg = (l + r + w + s) / 4.0;
-        double decimalPart = avg - Math.Floor(avg);
-
-        if (decimalPart < 0.25)
-            return Math.Floor(avg);
-        if (decimalPart < 0.75)
-            return Math.Floor(avg) + 0.5;
-        return Math.Ceiling(avg);
+        return RoundToHalfBand(avg);
     }
 }

@@ -19,6 +19,8 @@ GO
 
 -- 2. Xóa bảng cũ nếu cần thiết lập lại từ đầu
 IF OBJECT_ID('dbo.ProctoringLogs', 'U') IS NOT NULL DROP TABLE dbo.ProctoringLogs;
+IF OBJECT_ID('dbo.ExamDrafts', 'U') IS NOT NULL DROP TABLE dbo.ExamDrafts;
+IF OBJECT_ID('dbo.SpeakingPrompts', 'U') IS NOT NULL DROP TABLE dbo.SpeakingPrompts;
 IF OBJECT_ID('dbo.EvaluationReports', 'U') IS NOT NULL DROP TABLE dbo.EvaluationReports;
 IF OBJECT_ID('dbo.CandidateSubmissions', 'U') IS NOT NULL DROP TABLE dbo.CandidateSubmissions;
 IF OBJECT_ID('dbo.ExamSessions', 'U') IS NOT NULL DROP TABLE dbo.ExamSessions;
@@ -130,6 +132,36 @@ CREATE TABLE dbo.ProctoringLogs (
 );
 GO
 
+-- 10b. Tạo Bảng ExamDrafts (Bản nháp Autosave - Offline-First)
+CREATE TABLE dbo.ExamDrafts (
+    Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
+    SessionId UNIQUEIDENTIFIER NOT NULL FOREIGN KEY REFERENCES dbo.ExamSessions(Id) ON DELETE CASCADE,
+    SkillType INT NOT NULL, -- 1: Listening, 2: Reading, 3: Writing, 4: Speaking
+    DraftContent NVARCHAR(MAX) NULL,
+    DraftAnswersJson NVARCHAR(MAX) NULL,
+    UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE()
+);
+GO
+
+CREATE UNIQUE INDEX IX_ExamDrafts_SessionId_SkillType ON dbo.ExamDrafts (SessionId, SkillType);
+GO
+
+-- 10c. Tạo Bảng SpeakingPrompts (Kịch bản vấn đáp Speaking: câu hỏi + text gợi ý)
+CREATE TABLE dbo.SpeakingPrompts (
+    Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
+    SectionId UNIQUEIDENTIFIER NOT NULL FOREIGN KEY REFERENCES dbo.ExamSections(Id) ON DELETE CASCADE,
+    Part INT NOT NULL, -- 1: Part1Introduction, 2: Part2LongTurn, 3: Part3Discussion
+    PromptOrder INT NOT NULL,
+    QuestionText NVARCHAR(MAX) NOT NULL,
+    CandidatePromptText NVARCHAR(MAX) NOT NULL,
+    PreparationSeconds INT NOT NULL DEFAULT 0,
+    ResponseSeconds INT NOT NULL DEFAULT 60
+);
+GO
+
+CREATE INDEX IX_SpeakingPrompts_SectionId_Part_PromptOrder ON dbo.SpeakingPrompts (SectionId, Part, PromptOrder);
+GO
+
 -- =========================================================================
 -- 11. SEED DATA MẪU (TÀI KHOẢN & ĐỀ THI IELTS ACADEMIC 4 KỸ NĂNG)
 -- =========================================================================
@@ -153,7 +185,7 @@ INSERT INTO dbo.Exams (Id, Title, Description, ExamType, TotalDurationMinutes, I
 -- Section 1: Listening
 DECLARE @SecListeningId UNIQUEIDENTIFIER = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 INSERT INTO dbo.ExamSections (Id, ExamId, SkillType, SectionOrder, DurationMinutes, MediaUrl, PassageText) VALUES
-(@SecListeningId, @ExamId, 1, 1, 30, 'https://assets.ailes.edu.vn/audio/cambridge_mock_test1.mp3', 
+(@SecListeningId, @ExamId, 1, 1, 30, 'media/listening_section1_hotel_reservation.wav', 
  N'IELTS Listening Section 1: Telephone inquiry between Customer and Hotel Receptionist regarding reservation details.');
 
 INSERT INTO dbo.Questions (Id, SectionId, QuestionNumber, QuestionType, QuestionText, OptionsJson, CorrectAnswer, MaxScore) VALUES

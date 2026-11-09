@@ -1,8 +1,11 @@
 ﻿using SmartIELTS.Application.DTOs;
+using SmartIELTS.Domain.Common;
 using SmartIELTS.Domain.Entities;
 using SmartIELTS.Domain.Enums;
 using SmartIELTS.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace SmartIELTS.WebApi.Controllers;
 
@@ -12,27 +15,38 @@ public class AuthController : ControllerBase
 {
     private readonly IRepository<User> _userRepo;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly JwtOptions _jwtOptions;
 
-    public AuthController(IRepository<User> userRepo, IUnitOfWork unitOfWork)
+    public AuthController(IRepository<User> userRepo, IUnitOfWork unitOfWork, IOptions<JwtOptions> jwtOptions)
     {
         _userRepo = userRepo;
         _unitOfWork = unitOfWork;
+        _jwtOptions = jwtOptions.Value;
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
+    [AllowAnonymous]
+    public async Task<IActionResult> Login([FromBody] LoginRequestDto request, CancellationToken ct)
     {
         var users = await _userRepo.FindAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower());
         var user = users.FirstOrDefault();
 
-        if (user == null || user.PasswordHash != request.Password)
+        if (user == null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
         {
             return Unauthorized(new { message = "Sai tài khoản hoặc mật khẩu!" });
         }
 
+        // Tự nâng cấp mật khẩu plaintext của dữ liệu seed cũ sang PBKDF2.
+        if (!PasswordHasher.IsHashed(user.PasswordHash))
+        {
+            user.PasswordHash = PasswordHasher.Hash(request.Password);
+            _userRepo.Update(user);
+            await _unitOfWork.SaveChangesAsync(ct);
+        }
+
         var response = new LoginResponseDto
         {
-            Token = $"mock-jwt-token-{user.Id}-{DateTime.UtcNow.Ticks}",
+            Token = JwtTokenGenerator.Generate(user, _jwtOptions),
             User = new UserDto
             {
                 Id = user.Id,
@@ -47,7 +61,8 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] UserDto request)
+    [AllowAnonymous]
+    public async Task<IActionResult> Register([FromBody] RegisterRequestDto request, CancellationToken ct)
     {
         var existing = await _userRepo.FindAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower());
         if (existing.Any())
@@ -58,52 +73,15 @@ public class AuthController : ControllerBase
         var newUser = new User
         {
             Username = request.Username.Trim(),
-            PasswordHash = "Student@123",
+            PasswordHash = PasswordHasher.Hash(request.Password),
             FullName = request.FullName,
             Email = request.Email,
             Role = UserRole.Candidate
         };
 
         await _userRepo.AddAsync(newUser);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(ct);
 
         return Ok(new { message = "Đăng ký thành công!", userId = newUser.Id });
-    }
-}
-
-[ApiController]
-[Route("api/[controller]")]
-public class ExamsController : ControllerBase
-{
-    private readonly IRepository<Exam> _examRepo;
-
-    public ExamsController(IRepository<Exam> examRepo)
-    {
-        _examRepo = examRepo;
-    }
-
-    [HttpGet]
-    public async Task<IActionResult> GetAllExams()
-    {
-        var exams = await _examRepo.GetAllAsync();
-        var dtos = exams.Where(e => e.IsActive).Select(e => new ExamDto
-        {
-            Id = e.Id,
-            Title = e.Title,
-            Description = e.Description,
-            ExamType = e.ExamType,
-            TotalDurationMinutes = e.TotalDurationMinutes
-        });
-
-        return Ok(dtos);
-    }
-
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetExamById(Guid id)
-    {
-        var exam = await _examRepo.GetByIdAsync(id);
-        if (exam == null) return NotFound(new { message = "Không tìm thấy đề thi!" });
-
-        return Ok(exam);
     }
 }

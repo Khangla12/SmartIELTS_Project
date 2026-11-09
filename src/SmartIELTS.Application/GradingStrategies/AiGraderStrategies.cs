@@ -24,9 +24,12 @@ public class WritingAiGrader : IExamGrader
 
         var aiResult = await _aiAdapter.EvaluateWritingAsync(prompt, essay);
 
+        var criteria = new[] { aiResult.TaskResponse, aiResult.CoherenceCohesion, aiResult.LexicalResource, aiResult.GrammaticalRangeAccuracy };
+
         return new GradingResultDto
         {
-            RawScore = aiResult.OverallBand,
+            RawScore = criteria.Average(),
+            TotalQuestions = 0, // kỹ năng chấm theo tiêu chí, không phải số câu
             BandScore = aiResult.OverallBand,
             CriterionScore1 = aiResult.TaskResponse,
             CriterionScore2 = aiResult.CoherenceCohesion,
@@ -56,13 +59,16 @@ public class SpeakingSpeechGrader : IExamGrader
     public async Task<GradingResultDto> GradeAsync(CandidateSubmission submission, ExamSection section)
     {
         string prompt = section.PassageText ?? "IELTS Speaking Part 3 Discussion";
-        string transcript = submission.EssayContent ?? "Candidate response transcript";
+        string transcript = submission.EssayContent ?? string.Empty;
 
         var aiResult = await _aiAdapter.EvaluateSpeakingAsync(prompt, transcript, submission.AudioRecordUrl);
 
+        var criteria = new[] { aiResult.FluencyCoherence, aiResult.Pronunciation, aiResult.LexicalResource, aiResult.GrammaticalRangeAccuracy };
+
         return new GradingResultDto
         {
-            RawScore = aiResult.OverallBand,
+            RawScore = criteria.Average(),
+            TotalQuestions = 0, // kỹ năng chấm theo tiêu chí, không phải số câu
             BandScore = aiResult.OverallBand,
             CriterionScore1 = aiResult.FluencyCoherence,
             CriterionScore2 = aiResult.Pronunciation,

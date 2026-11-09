@@ -1,4 +1,4 @@
-## Build results
+﻿## Build results
 [Bb]in/
 [Oo]bj/
 [Ll]og/
@@ -16,7 +16,8 @@
 !.vscode/tasks.json
 !.vscode/launch.json
 
-## Database files (optional local db cache)
+## Database files
+*.db
 *.db-shm
 *.db-wal
 
@@ -26,3 +27,6 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
+
+## Local recording output (Speaking)
+recordings/

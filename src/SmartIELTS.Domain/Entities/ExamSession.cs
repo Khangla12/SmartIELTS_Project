@@ -18,6 +18,7 @@ public class ExamSession
 
     public ICollection<CandidateSubmission> Submissions { get; set; } = new List<CandidateSubmission>();
     public ICollection<ProctoringLog> ProctoringLogs { get; set; } = new List<ProctoringLog>();
+    public ICollection<ExamDraft> Drafts { get; set; } = new List<ExamDraft>();
 }
 
 public class CandidateSubmission

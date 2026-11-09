@@ -1,135 +1,110 @@
 ﻿using SmartIELTS.Application.DTOs;
-using SmartIELTS.Domain.Entities;
+using SmartIELTS.Application.Interfaces;
 using SmartIELTS.Domain.Enums;
-using SmartIELTS.Infrastructure.Data;
 using SmartIELTS.WebApi.Hubs;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 
 namespace SmartIELTS.WebApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "Teacher,Admin")]
 public class GradingController : ControllerBase
 {
-    private readonly SmartIeltsDbContext _context;
+    private readonly ITeachingDashboardService _dashboard;
+    private readonly IHubContext<ProctoringHub> _hubContext;
 
-    public GradingController(SmartIeltsDbContext context)
+    public GradingController(ITeachingDashboardService dashboard, IHubContext<ProctoringHub> hubContext)
     {
-        _context = context;
+        _dashboard = dashboard;
+        _hubContext = hubContext;
     }
 
     [HttpGet("pending-reviews")]
-    public async Task<IActionResult> GetPendingReviews()
-    {
-        var pendingReports = await _context.EvaluationReports
-            .Include(r => r.Submission)
-            .ThenInclude(s => s!.Session)
-            .ThenInclude(sess => sess!.User)
-            .Where(r => !r.IsApproved)
-            .OrderByDescending(r => r.CreatedAt)
-            .Select(r => new
-            {
-                ReportId = r.Id,
-                SubmissionId = r.SubmissionId,
-                CandidateName = r.Submission!.Session!.User!.FullName,
-                SkillType = r.Submission.SkillType,
-                ProposedBandScore = r.Submission.BandScore,
-                Criterion1 = r.CriterionScore1,
-                Criterion2 = r.CriterionScore2,
-                Criterion3 = r.CriterionScore3,
-                Criterion4 = r.CriterionScore4,
-                AiFeedback = r.FeedbackComments,
-                DetailedJsonAnalysis = r.DetailedJsonAnalysis,
-                EssayContent = r.Submission.EssayContent,
-                SubmittedAt = r.Submission.SubmittedAt
-            })
-            .ToListAsync();
-
-        return Ok(pendingReports);
-    }
+    public async Task<IActionResult> GetPendingReviews(CancellationToken ct)
+        => Ok(await _dashboard.GetPendingReviewsAsync(ct));
 
     [HttpPost("approve-score")]
-    public async Task<IActionResult> ApproveScore([FromBody] TeacherApproveScoreRequestDto request)
+    public async Task<IActionResult> ApproveScore([FromBody] TeacherApproveScoreRequestDto request, CancellationToken ct)
     {
-        var report = await _context.EvaluationReports
-            .Include(r => r.Submission)
-            .ThenInclude(s => s!.Session)
-            .FirstOrDefaultAsync(r => r.Id == request.ReportId);
+        var result = await _dashboard.ApproveScoreAsync(request, ct);
+        if (result == null) return NotFound(new { message = "Không tìm thấy bản đánh giá!" });
 
-        if (report == null) return NotFound(new { message = "Không tìm thấy bản đánh giá!" });
-
-        // Update with Teacher approved score (Human-in-the-loop)
-        report.CriterionScore1 = request.CriterionScore1;
-        report.CriterionScore2 = request.CriterionScore2;
-        report.CriterionScore3 = request.CriterionScore3;
-        report.CriterionScore4 = request.CriterionScore4;
-        report.FeedbackComments = $"[Giáo viên thẩm định]: {request.TeacherComments}\n[Đánh giá gốc của AI]: {report.FeedbackComments}";
-        report.IsApproved = true;
-
-        if (report.Submission != null)
+        return Ok(new
         {
-            report.Submission.BandScore = request.ApprovedBandScore;
-        }
-
-        await _context.SaveChangesAsync();
-
-        return Ok(new { message = "Giáo viên đã duyệt điểm thành công!", approvedBand = request.ApprovedBandScore });
+            message = "Giáo viên đã duyệt điểm thành công!",
+            approvedBand = result.OfficialBandScore,
+            overallBand = result.OverallBandScore
+        });
     }
 }
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class ProctoringController : ControllerBase
 {
-    private readonly SmartIeltsDbContext _context;
+    private readonly ITeachingDashboardService _dashboard;
     private readonly IHubContext<ProctoringHub> _hubContext;
 
-    public ProctoringController(SmartIeltsDbContext context, IHubContext<ProctoringHub> hubContext)
+    public ProctoringController(ITeachingDashboardService dashboard, IHubContext<ProctoringHub> hubContext)
     {
-        _context = context;
+        _dashboard = dashboard;
         _hubContext = hubContext;
     }
 
     [HttpPost("log")]
-    public async Task<IActionResult> LogViolation([FromBody] ProctoringViolationDto request)
+    public async Task<IActionResult> LogViolation([FromBody] ProctoringViolationDto request, CancellationToken ct)
     {
-        var session = await _context.ExamSessions.FindAsync(request.SessionId);
-        if (session == null) return NotFound(new { message = "Phiên thi không tồn tại!" });
+        bool logged = await _dashboard.LogViolationAsync(request, ct);
+        if (!logged) return NotFound(new { message = "Phiên thi không tồn tại!" });
 
-        var log = new ProctoringLog
-        {
-            SessionId = request.SessionId,
-            Timestamp = DateTime.UtcNow,
-            ViolationType = request.ViolationType,
-            Description = request.Description,
-            EvidenceSnapshotUrl = request.EvidenceSnapshotUrl
-        };
-
-        await _context.ProctoringLogs.AddAsync(log);
-        await _context.SaveChangesAsync();
-
-        // Broadcast to Proctoring Realtime Hub
+        // Broadcast tới phòng giám sát đang mở (Observer / Pub-Sub qua SignalR).
         await _hubContext.Clients.Group($"Proctoring_{request.SessionId}").SendAsync("ViolationAlertReceived", new
         {
             SessionId = request.SessionId,
             ViolationType = request.ViolationType.ToString(),
             Description = request.Description,
-            Timestamp = log.Timestamp
-        });
+            Timestamp = DateTime.UtcNow
+        }, ct);
 
-        return Ok(new { message = "Đã ghi nhận vi phạm Kiosk", logId = log.Id });
+        return Ok(new { message = "Đã ghi nhận vi phạm Kiosk" });
     }
 
     [HttpGet("logs/{sessionId}")]
-    public async Task<IActionResult> GetSessionLogs(Guid sessionId)
+    public async Task<IActionResult> GetSessionLogs(Guid sessionId, CancellationToken ct)
     {
-        var logs = await _context.ProctoringLogs
+        var logs = (await _dashboard.GetProctoringLogsAsync(1000, ct))
             .Where(l => l.SessionId == sessionId)
-            .OrderByDescending(l => l.Timestamp)
-            .ToListAsync();
+            .ToList();
 
         return Ok(logs);
+    }
+
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetSessions(CancellationToken ct)
+        => Ok(await _dashboard.GetActiveSessionsAsync(50, ct));
+
+    /// <summary>Giám thị đình chỉ ca thi đang diễn ra (vi phạm quy chế).</summary>
+    [HttpPost("sessions/{sessionId}/terminate")]
+    public async Task<IActionResult> TerminateSession(Guid sessionId, [FromBody] TerminateSessionRequestDto request, CancellationToken ct)
+    {
+        string? proctor = User.Identity?.Name;
+
+        var result = await _dashboard.TerminateSessionAsync(sessionId, request.Reason, proctor, ct);
+        if (result == null) return NotFound(new { message = "Ca thi không tồn tại!" });
+
+        return Ok(new
+        {
+            message = "Đã đình chỉ ca thi và ghi biên bản.",
+            result.SessionId,
+            result.CandidateName,
+            result.TerminatedAt,
+            result.Reason,
+            result.PartialOverallBand,
+            result.SubmittedSkillCount
+        });
     }
 }

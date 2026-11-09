@@ -8,7 +8,7 @@ public class Exam
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public ExamType ExamType { get; set; } = ExamType.Academic;
-    public int TotalDurationMinutes { get; set; } = 170; // 30 (L) + 60 (R) + 60 (W) + 20 (S)
+    public int TotalDurationMinutes { get; set; } = 165; // 30 (L) + 60 (R) + 60 (W) + 15 (S)
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -29,6 +29,7 @@ public class ExamSection
     public string? PassageText { get; set; } // Passages for Reading / Prompt text for Writing & Speaking
 
     public ICollection<Question> Questions { get; set; } = new List<Question>();
+    public ICollection<SpeakingPrompt> SpeakingPrompts { get; set; } = new List<SpeakingPrompt>();
 }
 
 public class Question

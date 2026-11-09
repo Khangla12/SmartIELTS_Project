@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using SmartIELTS.Domain.Common;
 using SmartIELTS.Domain.Entities;
 using SmartIELTS.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,9 @@ public static class SmartIeltsDbSeeder
 {
     public static async Task SeedAsync(SmartIeltsDbContext context)
     {
+        // Bổ sung kịch bản Speaking cho database cũ (thêm sau khi đã seed lần đầu).
+        await SeedSpeakingPromptsIfMissingAsync(context);
+
         if (await context.Users.AnyAsync())
         {
             return; // Already seeded
@@ -18,7 +22,7 @@ public static class SmartIeltsDbSeeder
         var admin = new User
         {
             Username = "admin",
-            PasswordHash = "Admin@123",
+            PasswordHash = PasswordHasher.Hash("Admin@123"),
             FullName = "Hệ Thống Khảo Thí SmartIELTS (Administrator)",
             Email = "admin@ailes.fpt.edu.vn",
             Role = UserRole.Admin
@@ -27,7 +31,7 @@ public static class SmartIeltsDbSeeder
         var teacher = new User
         {
             Username = "teacher",
-            PasswordHash = "Teacher@123",
+            PasswordHash = PasswordHasher.Hash("Teacher@123"),
             FullName = "ThS. Nguyễn Văn Giảng (Examiner)",
             Email = "teacher@ailes.fpt.edu.vn",
             Role = UserRole.Teacher
@@ -36,7 +40,7 @@ public static class SmartIeltsDbSeeder
         var student = new User
         {
             Username = "student",
-            PasswordHash = "Student@123",
+            PasswordHash = PasswordHasher.Hash("Student@123"),
             FullName = "Lê Hoàng Long (Thí sinh IELTS)",
             Email = "longlhse160000@fpt.edu.vn",
             Role = UserRole.Candidate
@@ -61,7 +65,7 @@ public static class SmartIeltsDbSeeder
             SkillType = SkillType.Listening,
             SectionOrder = 1,
             DurationMinutes = 30,
-            MediaUrl = "https://assets.ailes.edu.vn/audio/cambridge_mock_test1.mp3",
+            MediaUrl = "media/listening_section1_hotel_reservation.wav",
             PassageText = "IELTS Listening Section 1: Telephone inquiry between Customer and Hotel Receptionist regarding reservation details."
         };
 
@@ -193,6 +197,117 @@ public static class SmartIeltsDbSeeder
             PassageText = "SPEAKING PART 3: TECHNOLOGY & SOCIETY\n\n1. How has modern automation transformed the workplace compared to previous generations?\n2. What ethical measures should educational institutions implement when students utilize artificial intelligence for research?\n3. Do you foresee artificial intelligence exacerbating socioeconomic disparities, and how might governments address this?"
         };
 
+        // Kịch bản vấn đáp: mỗi câu gồm câu hỏi giám khảo + text gợi ý cho thí sinh đọc trước khi trả lời.
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part1Introduction,
+            PromptOrder = 1,
+            QuestionText = "Let's talk about where you live. Do you live in a house or an apartment?",
+            CandidatePromptText =
+                "Hãy đọc và trả lời bằng tiếng Anh (2-3 câu):\n\n" +
+                "• Bạn sống ở nhà riêng hay căn hộ?\n" +
+                "• Nêu 1 lý do bạn thích / không thích.\n\n" +
+                "Mẫu: \"I live in a small apartment in the city centre, mainly because it's convenient for commuting.\"\n" +
+                "Từ vựng gợi ý: spacious, cosy, neighbourhood, commute, furnished.",
+            ResponseSeconds = 40
+        });
+
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part1Introduction,
+            PromptOrder = 2,
+            QuestionText = "What do you usually do in your free time?",
+            CandidatePromptText =
+                "Hãy đọc và trả lời (2-3 câu):\n\n" +
+                "• 2 hoạt động bạn thường làm khi rảnh\n" +
+                "• Vì sao bạn thích chúng?\n\n" +
+                "Mẫu: \"In my free time, I usually read and go jogging, which helps me unwind after work.\"\n" +
+                "Từ vựng gợi ý: unwind, take up, recreational, relieve stress.",
+            ResponseSeconds = 40
+        });
+
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part1Introduction,
+            PromptOrder = 3,
+            QuestionText = "Do you prefer studying alone or with other people? Why?",
+            CandidatePromptText =
+                "Hãy đọc và trả lời (2-3 câu):\n\n" +
+                "• Chọn 1 hình thức\n" +
+                "• So sánh ngắn với hình thức còn lại\n\n" +
+                "Mẫu: \"I lean towards studying alone because I can focus better, although group study helps when I get stuck.\"\n" +
+                "Từ vựng gợi ý: concentrate, distract, collaborative, discipline.",
+            ResponseSeconds = 40
+        });
+
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part2LongTurn,
+            PromptOrder = 1,
+            QuestionText =
+                "Now, I'd like you to describe a skill you would like to learn in the future.\n" +
+                "You should say: what the skill is; why you want to learn it; how you would learn it; and explain how this skill would benefit you.",
+            CandidatePromptText =
+                "CUE CARD — Đọc kỹ và chuẩn bị 1 phút, sau đó nói liên tục 1.5-2 phút.\n\n" +
+                "Describe a skill you would like to learn in the future.\n" +
+                "You should say:\n" +
+                "  • what the skill is\n" +
+                "  • why you want to learn it\n" +
+                "  • how you would learn it\n" +
+                "  • and explain how this skill would benefit you\n\n" +
+                "Dàn ý gợi ý:\n" +
+                "1) Mở bài: \"The skill I'd most like to master is ...\"\n" +
+                "2) Lý do: career / personal interest\n" +
+                "3) Cách học: online course, mentor, daily practice\n" +
+                "4) Lợi ích: \"This would allow me to ... which is invaluable because ...\"\n" +
+                "Từ vựng: master, proficiency, hands-on, self-taught, perseverance, rewarding.",
+            PreparationSeconds = 60,
+            ResponseSeconds = 120
+        });
+
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part3Discussion,
+            PromptOrder = 1,
+            QuestionText = "Why do you think some people are more willing to learn new skills than others?",
+            CandidatePromptText =
+                "PART 3 — Thảo luận mở rộng. Trả lời 2-3 ý kèm ví dụ (60-100 từ).\n\n" +
+                "Gợi ý triển khai:\n" +
+                "• Yếu tố 1: tính cách (mindset, resilience)\n" +
+                "• Yếu tố 2: môi trường (supportive environment, exposure)\n" +
+                "• Ví dụ cụ thể\n\n" +
+                "Từ vựng: intrinsic motivation, perseverance, role model.",
+            ResponseSeconds = 90
+        });
+
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part3Discussion,
+            PromptOrder = 2,
+            QuestionText = "How has technology changed the way people acquire new skills compared to the past?",
+            CandidatePromptText =
+                "Trả lời theo cấu trúc so sánh quá khứ / hiện tại:\n\n" +
+                "• Quá khứ: \"In the past, learners relied heavily on ...\"\n" +
+                "• Hiện tại: \"... whereas nowadays ...\"\n" +
+                "• Kết luận ngắn\n\n" +
+                "Từ vựng: accessible, democratise, self-paced, obsolete.",
+            ResponseSeconds = 90
+        });
+
+        secSpeaking.SpeakingPrompts.Add(new SpeakingPrompt
+        {
+            Part = SpeakingPart.Part3Discussion,
+            PromptOrder = 3,
+            QuestionText = "Should employers pay for their staff to learn new skills? Why?",
+            CandidatePromptText =
+                "Nêu quan điểm rõ ràng + lợi ích cho cả hai phía:\n\n" +
+                "• Quan điểm: \"I firmly believe that ...\"\n" +
+                "• Lợi ích cho công ty: productivity, retention\n" +
+                "• Lợi ích cho nhân viên: career growth\n\n" +
+                "Từ vựng: invest in, upskill, mutual benefit, long-term payoff.",
+            ResponseSeconds = 90
+        });
+
         exam.Sections.Add(secListening);
         exam.Sections.Add(secReading);
         exam.Sections.Add(secWriting);
@@ -200,5 +315,207 @@ public static class SmartIeltsDbSeeder
 
         await context.Exams.AddAsync(exam);
         await context.SaveChangesAsync();
+
+        // 3. Seed Sample Session with Proctoring Logs and Pending Review (for Teacher / Proctor Dashboard)
+        var sampleSession = new ExamSession
+        {
+            UserId = student.Id,
+            ExamId = exam.Id,
+            StartTime = DateTime.UtcNow.AddMinutes(-40),
+            Status = SessionStatus.InProgress
+        };
+        await context.ExamSessions.AddAsync(sampleSession);
+        await context.SaveChangesAsync();
+
+        var log1 = new ProctoringLog
+        {
+            SessionId = sampleSession.Id,
+            Timestamp = DateTime.UtcNow.AddMinutes(-30),
+            ViolationType = ViolationType.HotkeyBlocked,
+            Description = "Hệ thống Kiosk đã chặn phím nóng [Alt + Tab (Chuyển cửa sổ)]"
+        };
+        var log2 = new ProctoringLog
+        {
+            SessionId = sampleSession.Id,
+            Timestamp = DateTime.UtcNow.AddMinutes(-15),
+            ViolationType = ViolationType.HotkeyBlocked,
+            Description = "Hệ thống Kiosk đã chặn phím nóng [Windows Key (Start Menu)]"
+        };
+        await context.ProctoringLogs.AddRangeAsync(log1, log2);
+
+        var writingSubmission = new CandidateSubmission
+        {
+            SessionId = sampleSession.Id,
+            SkillType = SkillType.Writing,
+            SubmittedAt = DateTime.UtcNow.AddMinutes(-5),
+            EssayContent = "In contemporary society, artificial intelligence has emerged as a transformative force across numerous sectors, including education. While some commentators argue that automated systems will completely supplant human educators, it is my firm conviction that teachers play an indispensable, multifaceted role that technology can only augment rather than extinguish.\n\nFirst and foremost, human teachers provide emotional intelligence, empathetic mentoring, and moral guidance that algorithmic systems fundamentally lack. Furthermore, pedagogy is not merely the mechanical transmission of raw information; it requires profound understanding of diverse student temperaments and motivational psychology. Consequently, teachers serve as an essential catalyst for holistic human development.\n\nIn conclusion, although artificial intelligence offers unprecedented personalized learning materials, it will never replace the profound bond and moral inspiration provided by human instructors.",
+            RawScore = 7.0,
+            BandScore = 7.0
+        };
+
+        var evalReport = new EvaluationReport
+        {
+            Submission = writingSubmission,
+            EvaluatedBy = EvaluatorType.AiEngine,
+            CriterionScore1 = 7.5,
+            CriterionScore2 = 7.0,
+            CriterionScore3 = 7.0,
+            CriterionScore4 = 6.5,
+            FeedbackComments = "Bài viết có bố cục 4 đoạn rõ ràng, lập luận đúng trọng tâm. Sử dụng vốn từ học thuật phong phú: 'transformative force', 'indispensable', 'multifaceted', 'empathetic mentoring'. Khuyến nghị giáo viên xem xét nâng điểm Lexical Resource lên 7.5.",
+            DetailedJsonAnalysis = JsonSerializer.Serialize(new
+            {
+                Highlights = new[] { "transformative force", "indispensable", "multifaceted", "empathetic mentoring" },
+                ModelAnswerBand8 = "Undeniably, artificial intelligence has spearheaded a profound pedagogical revolution across global educational ecosystems..."
+            }),
+            IsApproved = false // Chờ Giám khảo phê duyệt Human-in-the-loop
+        };
+        writingSubmission.EvaluationReports.Add(evalReport);
+
+        await context.CandidateSubmissions.AddAsync(writingSubmission);
+        await context.SaveChangesAsync();
     }
+
+    /// <summary>
+    /// Thêm kịch bản Speaking cho database đã tồn tại (tính năng bổ sung sau khi seed lần đầu).
+    /// Chỉ chạy khi bảng SpeakingPrompts đang rỗng và đã có đề + phần thi Speaking.
+    /// </summary>
+    private static async Task SeedSpeakingPromptsIfMissingAsync(SmartIeltsDbContext context)
+    {
+        try
+        {
+            if (await context.SpeakingPrompts.AnyAsync()) return;
+
+            var speakingSection = await context.ExamSections
+                .FirstOrDefaultAsync(s => s.SkillType == SkillType.Speaking);
+
+            if (speakingSection == null) return;
+
+            // QUAN TRỌNG: thêm trực tiếp vào DbSet, KHÔNG thêm qua navigation của entity đã tracked.
+            // Entity có Id = Guid.NewGuid() sẵn nên nếu add qua navigation EF sẽ coi là "đã tồn tại"
+            // và sinh UPDATE vào row không có -> 0 row affected.
+            var prompts = BuildDefaultSpeakingPrompts(speakingSection.Id);
+            await context.SpeakingPrompts.AddRangeAsync(prompts);
+            await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Không chặn khởi động nếu bảng chưa được tạo (schema guard sẽ xử lý).
+            Console.WriteLine($"[SmartIELTS] Không seed được SpeakingPrompts: {ex.Message}");
+        }
+    }
+
+    /// <summary>Bộ kịch bản Speaking mặc định (3 Part, có text gợi ý cho thí sinh đọc).</summary>
+    private static List<SpeakingPrompt> BuildDefaultSpeakingPrompts(Guid sectionId) => new()
+    {
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part1Introduction,
+            PromptOrder = 1,
+            QuestionText = "Let's talk about where you live. Do you live in a house or an apartment?",
+            CandidatePromptText =
+                "Hãy đọc và trả lời bằng tiếng Anh (2-3 câu):\n\n" +
+                "• Bạn sống ở nhà riêng hay căn hộ?\n" +
+                "• Nêu 1 lý do bạn thích / không thích.\n\n" +
+                "Mẫu: \"I live in a small apartment in the city centre, mainly because it's convenient for commuting.\"\n" +
+                "Từ vựng gợi ý: spacious, cosy, neighbourhood, commute, furnished.",
+            ResponseSeconds = 40
+        },
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part1Introduction,
+            PromptOrder = 2,
+            QuestionText = "What do you usually do in your free time?",
+            CandidatePromptText =
+                "Hãy đọc và trả lời (2-3 câu):\n\n" +
+                "• 2 hoạt động bạn thường làm khi rảnh\n" +
+                "• Vì sao bạn thích chúng?\n\n" +
+                "Mẫu: \"In my free time, I usually read and go jogging, which helps me unwind after work.\"\n" +
+                "Từ vựng gợi ý: unwind, take up, recreational, relieve stress.",
+            ResponseSeconds = 40
+        },
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part1Introduction,
+            PromptOrder = 3,
+            QuestionText = "Do you prefer studying alone or with other people? Why?",
+            CandidatePromptText =
+                "Hãy đọc và trả lời (2-3 câu):\n\n" +
+                "• Chọn 1 hình thức\n" +
+                "• So sánh ngắn với hình thức còn lại\n\n" +
+                "Mẫu: \"I lean towards studying alone because I can focus better, although group study helps when I get stuck.\"\n" +
+                "Từ vựng gợi ý: concentrate, distract, collaborative, discipline.",
+            ResponseSeconds = 40
+        },
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part2LongTurn,
+            PromptOrder = 1,
+            QuestionText =
+                "Now, I'd like you to describe a skill you would like to learn in the future.\n" +
+                "You should say: what the skill is; why you want to learn it; how you would learn it; and explain how this skill would benefit you.",
+            CandidatePromptText =
+                "CUE CARD — Đọc kỹ và chuẩn bị 1 phút, sau đó nói liên tục 1.5-2 phút.\n\n" +
+                "Describe a skill you would like to learn in the future.\n" +
+                "You should say:\n" +
+                "  • what the skill is\n" +
+                "  • why you want to learn it\n" +
+                "  • how you would learn it\n" +
+                "  • and explain how this skill would benefit you\n\n" +
+                "Dàn ý gợi ý:\n" +
+                "1) Mở bài: \"The skill I'd most like to master is ...\"\n" +
+                "2) Lý do: career / personal interest\n" +
+                "3) Cách học: online course, mentor, daily practice\n" +
+                "4) Lợi ích: \"This would allow me to ... which is invaluable because ...\"\n" +
+                "Từ vựng: master, proficiency, hands-on, self-taught, perseverance, rewarding.",
+            PreparationSeconds = 60,
+            ResponseSeconds = 120
+        },
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part3Discussion,
+            PromptOrder = 1,
+            QuestionText = "Why do you think some people are more willing to learn new skills than others?",
+            CandidatePromptText =
+                "PART 3 — Thảo luận mở rộng. Trả lời 2-3 ý kèm ví dụ (60-100 từ).\n\n" +
+                "Gợi ý triển khai:\n" +
+                "• Yếu tố 1: tính cách (mindset, resilience)\n" +
+                "• Yếu tố 2: môi trường (supportive environment, exposure)\n" +
+                "• Ví dụ cụ thể\n\n" +
+                "Từ vựng: intrinsic motivation, perseverance, role model.",
+            ResponseSeconds = 90
+        },
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part3Discussion,
+            PromptOrder = 2,
+            QuestionText = "How has technology changed the way people acquire new skills compared to the past?",
+            CandidatePromptText =
+                "Trả lời theo cấu trúc so sánh quá khứ / hiện tại:\n\n" +
+                "• Quá khứ: \"In the past, learners relied heavily on ...\"\n" +
+                "• Hiện tại: \"... whereas nowadays ...\"\n" +
+                "• Kết luận ngắn\n\n" +
+                "Từ vựng: accessible, democratise, self-paced, obsolete.",
+            ResponseSeconds = 90
+        },
+        new SpeakingPrompt
+        {
+            SectionId = sectionId,
+            Part = SpeakingPart.Part3Discussion,
+            PromptOrder = 3,
+            QuestionText = "Should employers pay for their staff to learn new skills? Why?",
+            CandidatePromptText =
+                "Nêu quan điểm rõ ràng + lợi ích cho cả hai phía:\n\n" +
+                "• Quan điểm: \"I firmly believe that ...\"\n" +
+                "• Lợi ích cho công ty: productivity, retention\n" +
+                "• Lợi ích cho nhân viên: career growth\n\n" +
+                "Từ vựng: invest in, upskill, mutual benefit, long-term payoff.",
+            ResponseSeconds = 90
+        }
+    };
 }

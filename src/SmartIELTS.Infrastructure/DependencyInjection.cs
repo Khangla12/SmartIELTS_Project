@@ -4,6 +4,7 @@ using SmartIELTS.Domain.Interfaces;
 using SmartIELTS.Infrastructure.Adapters;
 using SmartIELTS.Infrastructure.Data;
 using SmartIELTS.Infrastructure.Repositories;
+using SmartIELTS.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,6 +44,15 @@ public static class DependencyInjection
         services.AddScoped<IExamGrader, WritingAiGrader>();
         services.AddScoped<IExamGrader, SpeakingSpeechGrader>();
         services.AddScoped<IGradingStrategyFactory, GradingStrategyFactory>();
+
+        // Application use cases dùng chung cho WebApi và WpfApp
+        services.AddScoped<IExamWorkflowService, ExamWorkflowService>();
+        services.AddScoped<ITeachingDashboardService, TeachingDashboardService>();
+        services.AddScoped<IExamManagementService, ExamManagementService>();
+        services.AddScoped<ISpeakingSessionService, SpeakingSessionService>();
+
+        // Observer bus cho cảnh báo giám thị (singleton: dùng chung trong một tiến trình)
+        services.AddSingleton<IProctoringNotificationBus, InMemoryProctoringNotificationBus>();
 
         return services;
     }

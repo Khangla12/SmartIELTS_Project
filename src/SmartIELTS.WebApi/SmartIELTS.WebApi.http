@@ -1,0 +1,69 @@
+@HostAddress = http://localhost:5294
+
+### 1. Test GET Exams List
+GET {{HostAddress}}/api/exams
+Accept: application/json
+
+### 2. Test Candidate Login
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "student",
+  "password": "Student@123"
+}
+
+### 3. Test Teacher Login
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "teacher",
+  "password": "Teacher@123"
+}
+
+### 4. Validation test (rỗng -> 400)
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "",
+  "password": ""
+}
+
+### 5. Start a session (dán token từ bước 2 vào @CandidateToken)
+POST {{HostAddress}}/api/examsessions/start
+Content-Type: application/json
+Authorization: Bearer {{CandidateToken}}
+
+{
+  "userId": "33333333-3333-3333-3333-333333333333",
+  "examId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+}
+
+### 6. Autosave draft
+POST {{HostAddress}}/api/examsessions/autosave
+Content-Type: application/json
+Authorization: Bearer {{CandidateToken}}
+
+{
+  "sessionId": "{{SessionId}}",
+  "skillType": 3,
+  "draftContent": "Ban nhap bai Writing..."
+}
+
+### 7. Restore draft
+GET {{HostAddress}}/api/examsessions/{{SessionId}}/draft?skillType=3
+Authorization: Bearer {{CandidateToken}}
+
+### 8. Session result
+GET {{HostAddress}}/api/examsessions/{{SessionId}}/result
+Authorization: Bearer {{CandidateToken}}
+
+### 9. Pending reviews (teacher/admin only)
+GET {{HostAddress}}/api/grading/pending-reviews
+Authorization: Bearer {{TeacherToken}}
+
+### 10. Sessions list for proctoring (teacher/admin only)
+GET {{HostAddress}}/api/proctoring/sessions
+Authorization: Bearer {{TeacherToken}}
