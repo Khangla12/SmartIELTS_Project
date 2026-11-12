@@ -15,10 +15,12 @@ namespace SmartIELTS.WebApi.Controllers;
 public class AdminExamsController : ControllerBase
 {
     private readonly IExamManagementService _exams;
+    private readonly ITeachingDashboardService _dashboard;
 
-    public AdminExamsController(IExamManagementService exams)
+    public AdminExamsController(IExamManagementService exams, ITeachingDashboardService dashboard)
     {
         _exams = exams;
+        _dashboard = dashboard;
     }
 
     [HttpGet]
@@ -135,7 +137,51 @@ public class AdminExamsController : ControllerBase
     [HttpDelete("questions/{questionId:guid}")]
     public async Task<IActionResult> DeleteQuestion(Guid questionId, CancellationToken ct)
     {
-        bool deleted = await _exams.DeleteQuestionAsync(questionId, ct);
-        return deleted ? Ok(new { message = "Đã xóa câu hỏi." }) : NotFound(new { message = "Không tìm thấy câu hỏi!" });
+        try
+        {
+            bool deleted = await _exams.DeleteQuestionAsync(questionId, ct);
+            return deleted ? Ok(new { message = "Đã xóa câu hỏi." }) : NotFound(new { message = "Không tìm thấy câu hỏi!" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
+
+    // ---------------------------------------------------------------------
+    // Phân công giảng viên chấm đề
+    // ---------------------------------------------------------------------
+
+    [HttpGet("{examId:guid}/assignments")]
+    public async Task<IActionResult> GetAssignments(Guid examId, CancellationToken ct)
+        => Ok(await _dashboard.GetAssignmentsAsync(examId, ct));
+
+    [HttpGet("teachers")]
+    public async Task<IActionResult> GetTeachers(CancellationToken ct)
+        => Ok(await _dashboard.GetTeachersAsync(ct));
+
+    [HttpPost("{examId:guid}/assignments")]
+    public async Task<IActionResult> AssignTeacher(Guid examId, [FromBody] AssignTeacherRequestDto request, CancellationToken ct)
+    {
+        var created = await _dashboard.AssignTeacherAsync(examId, request.TeacherId, request.AllowedSkills, ct);
+
+        return created == null
+            ? NotFound(new { message = "Không tìm thấy đề thi hoặc giảng viên hợp lệ!" })
+            : Ok(created);
+    }
+
+    [HttpDelete("assignments/{assignmentId:guid}")]
+    public async Task<IActionResult> UnassignTeacher(Guid assignmentId, CancellationToken ct)
+    {
+        bool removed = await _dashboard.UnassignTeacherAsync(assignmentId, ct);
+        return removed ? Ok(new { message = "Đã bỏ phân công." }) : NotFound(new { message = "Không tìm thấy phân công!" });
+    }
+}
+
+public class AssignTeacherRequestDto
+{
+    public Guid TeacherId { get; set; }
+
+    /// <summary>"Writing", "Speaking" hoặc "Writing,Speaking". Bỏ trống = chấm tất cả.</summary>
+    public string? AllowedSkills { get; set; }
 }

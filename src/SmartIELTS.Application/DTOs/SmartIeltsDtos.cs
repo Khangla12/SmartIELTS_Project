@@ -128,41 +128,6 @@ public class GradingResultDto
     public string DetailedJsonAnalysis { get; set; } = string.Empty;
 }
 
-public class SessionResultDto{
-    public Guid SessionId { get; set; }
-    public string CandidateName { get; set; } = string.Empty;
-    public string ExamTitle { get; set; } = string.Empty;
-    public SessionStatus Status { get; set; }
-    public double? OverallBandScore { get; set; }
-    public double? ListeningBand { get; set; }
-    public double? ReadingBand { get; set; }
-    public double? WritingBand { get; set; }
-    public double? SpeakingBand { get; set; }
-    public List<SkillSubmissionDto> Submissions { get; set; } = new();
-}
-
-public class SkillSubmissionDto
-{
-    public SkillType SkillType { get; set; }
-    public double? RawScore { get; set; }
-    public double? BandScore { get; set; }
-    public string? EssayContent { get; set; }
-    public List<EvaluationReportDto> Reports { get; set; } = new();
-}
-
-public class EvaluationReportDto
-{
-    public Guid Id { get; set; }
-    public EvaluatorType EvaluatedBy { get; set; }
-    public double? CriterionScore1 { get; set; }
-    public double? CriterionScore2 { get; set; }
-    public double? CriterionScore3 { get; set; }
-    public double? CriterionScore4 { get; set; }
-    public string FeedbackComments { get; set; } = string.Empty;
-    public string DetailedJsonAnalysis { get; set; } = string.Empty;
-    public bool IsApproved { get; set; }
-}
-
 public class ProctoringViolationDto
 {
     [Required(ErrorMessage = "SessionId không được để trống")]

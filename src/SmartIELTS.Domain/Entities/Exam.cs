@@ -14,6 +14,7 @@ public class Exam
 
     public ICollection<ExamSection> Sections { get; set; } = new List<ExamSection>();
     public ICollection<ExamSession> ExamSessions { get; set; } = new List<ExamSession>();
+    public ICollection<ExamAssignment> Assignments { get; set; } = new List<ExamAssignment>();
 }
 
 public class ExamSection

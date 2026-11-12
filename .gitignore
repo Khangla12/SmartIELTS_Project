@@ -30,3 +30,10 @@ $RECYCLE.BIN/
 
 ## Local recording output (Speaking)
 recordings/
+
+## Secrets / API keys (khong bao gio commit)
+.env
+.env.*
+appsettings.Local.json
+appsettings.*.Local.json
+*.secret

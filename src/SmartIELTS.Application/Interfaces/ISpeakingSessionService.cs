@@ -32,6 +32,12 @@ public class SpeakingTurnDto
 
 public class SpeakingTurnResultDto
 {
+    /// <summary>Số thứ tự lượt vừa hoàn thành (1-based).</summary>
+    public int TurnNumber { get; set; }
+
+    /// <summary>Tổng số lượt của buổi vấn đáp (chuẩn IELTS: 7).</summary>
+    public int TotalTurns { get; set; } = SmartIELTS.Application.Speaking.SpeakingInterviewScript.TotalSteps;
+
     public double TurnBand { get; set; }
     public double FluencyCoherence { get; set; }
     public double Pronunciation { get; set; }

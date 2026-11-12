@@ -32,14 +32,20 @@ public class ReadingExactGrader : ObjectiveExamGraderBase
     protected override GradingResultDto BuildResult(ExamSection section, int correctCount, List<object> details)
     {
         int total = section.Questions.Count;
-        double bandScore = BandScoreCalculator.ConvertReadingRawToBandForSection(correctCount, total, isAcademic: true);
+
+        // Reading Academic và General Training dùng bảng quy đổi KHÁC nhau.
+        // Lấy ExamType từ đề thi (collection đã Include ở use case gọi vào).
+        bool isAcademic = section.Exam?.ExamType != ExamType.GeneralTraining;
+
+        double bandScore = BandScoreCalculator.ConvertReadingRawToBandForSection(correctCount, total, isAcademic);
 
         return new GradingResultDto
         {
             RawScore = correctCount,
             TotalQuestions = total,
             BandScore = bandScore,
-            FeedbackComments = $"Bạn đã hoàn thành bài thi Reading với {correctCount}/{total} câu chính xác. Band score đạt được: {bandScore}.",
+            FeedbackComments = $"Bạn đã hoàn thành bài thi Reading ({section.Exam?.ExamType ?? ExamType.Academic}) " +
+                               $"với {correctCount}/{total} câu chính xác. Band score đạt được: {bandScore}.",
             DetailedJsonAnalysis = System.Text.Json.JsonSerializer.Serialize(details)
         };
     }

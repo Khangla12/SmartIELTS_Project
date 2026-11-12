@@ -1,6 +1,7 @@
 using SmartIELTS.Application.DTOs;
 using SmartIELTS.Application.GradingStrategies;
 using SmartIELTS.Application.Interfaces;
+using SmartIELTS.Application.Speaking;
 using SmartIELTS.Domain.Common;
 using SmartIELTS.Domain.Entities;
 using SmartIELTS.Domain.Enums;
@@ -42,40 +43,55 @@ public class SpeakingSessionService : ISpeakingSessionService
         {
             CurrentPart = request.Part,
             CurrentQuestion = request.Question,
-            Turns = request.PreviousTurns
+            // PreviousTurns có thể null nếu client gửi JSON "previousTurns": null
+            Turns = (request.PreviousTurns ?? new List<SpeakingTurnDto>())
+                .Where(t => t != null)
                 .OrderBy(t => t.TurnNumber)
                 .Select(t => new SpeakingTurn
                 {
                     TurnNumber = t.TurnNumber,
                     Part = t.Part,
-                    Question = t.Question,
-                    Answer = t.Answer
+                    Question = t.Question ?? string.Empty,
+                    Answer = t.Answer ?? string.Empty
                 })
                 .ToList()
         };
 
         var aiResult = await _aiAdapter.EvaluateSpeakingTurnAsync(state, request.Answer, request.AudioRecordUrl, ct);
 
-        // Part của câu hỏi tiếp theo: nếu AI trả về câu hỏi thì giữ logic chuyển phần của adapter.
-        var nextPart = ResolveNextPart(request.Part, state.Turns.Count, aiResult.NextQuestion != null);
+        // ---------------------------------------------------------------------
+        // LUỒNG HỎI DO CODE QUYẾT ĐỊNH, KHÔNG để AI quyết.
+        // Trước đây dùng aiResult.NextQuestion nên AI đếm sai số lượt
+        // (Part 3 thành 4-5 câu) -> thí sinh thấy "8 lượt rồi vẫn còn lượt 9".
+        // AI chỉ chấm điểm; kịch bản cố định 7 lượt: 3 Part1 + 1 Part2 + 3 Part3.
+        // ---------------------------------------------------------------------
+        int completedTurns = state.Turns.Count;        // các lượt ĐÃ xong trước lượt hiện tại
+        int nextIndex = completedTurns + 1;            // lượt hiện tại vừa xong -> bước kế tiếp
+
+        var nextStep = SpeakingInterviewScript.GetStep(nextIndex);
+        bool finished = nextStep == null;
 
         return new SpeakingTurnResultDto
         {
-            TurnBand = aiResult.TurnBand,
-            FluencyCoherence = aiResult.FluencyCoherence,
-            Pronunciation = aiResult.Pronunciation,
-            LexicalResource = aiResult.LexicalResource,
-            GrammaticalRangeAccuracy = aiResult.GrammaticalRangeAccuracy,
             WordCount = aiResult.WordCount,
-            LengthAssessment = aiResult.LengthAssessment,
-            TurnFeedback = aiResult.TurnFeedback,
-            NextQuestion = aiResult.NextQuestion,
-            NextQuestionHints = aiResult.NextQuestionHints,
-            NextPart = nextPart,
-            ModelAnswer = aiResult.ModelAnswer,
-            Highlights = aiResult.Highlights,
-            PhonemeIssues = aiResult.PhonemeIssues,
-            IsFinished = string.IsNullOrWhiteSpace(aiResult.NextQuestion)
+            TurnNumber = completedTurns + 1,
+
+            NextQuestion = nextStep?.Question,
+            NextQuestionHints = nextStep?.Hints,
+            NextPart = nextStep?.Part ?? request.Part,
+            IsFinished = finished,
+
+            // Đã ẩn: đây là dữ liệu AI, không dành cho thí sinh.
+            TurnBand = 0,
+            FluencyCoherence = 0,
+            Pronunciation = 0,
+            LexicalResource = 0,
+            GrammaticalRangeAccuracy = 0,
+            LengthAssessment = string.Empty,
+            TurnFeedback = string.Empty,
+            ModelAnswer = string.Empty,
+            Highlights = new List<SmartIELTS.Application.Interfaces.TextHighlightError>(),
+            PhonemeIssues = new List<string>()
         };
     }
 
@@ -88,6 +104,14 @@ public class SpeakingSessionService : ISpeakingSessionService
         if (turns == null || turns.Count == 0)
             throw new InvalidOperationException("Chưa có câu trả lời nào để chốt điểm Speaking.");
 
+        // Loại phần tử null / câu trả lời rỗng (client có thể gửi JSON không hợp lệ).
+        turns = turns
+            .Where(t => t != null && !string.IsNullOrWhiteSpace(t.Answer))
+            .ToList();
+
+        if (turns.Count == 0)
+            throw new InvalidOperationException("Không có câu trả lời hợp lệ nào để chốt điểm Speaking.");
+
         var session = await _context.ExamSessions
             .Include(s => s.Exam)
             .ThenInclude(e => e!.Sections)
@@ -99,11 +123,27 @@ public class SpeakingSessionService : ISpeakingSessionService
         if (session.Status == SessionStatus.Terminated)
             throw new InvalidOperationException("Ca thi đã bị giám thị đình chỉ, không thể nộp bài.");
 
+        // Giới hạn thời gian phía server (bù 2 phút cho độ trễ mạng).
+        if (session.Exam != null && session.Exam.TotalDurationMinutes > 0)
+        {
+            var deadline = session.StartTime.AddMinutes(session.Exam.TotalDurationMinutes + 2);
+            if (DateTime.UtcNow > deadline)
+                throw new InvalidOperationException(
+                    $"Đã quá thời gian làm bài ({session.Exam.TotalDurationMinutes} phút). Bài nộp không được chấp nhận.");
+        }
+
         var section = session.Exam?.Sections.FirstOrDefault(s => s.SkillType == SkillType.Speaking)
             ?? throw new InvalidOperationException("Đề thi không có phần Speaking!");
 
         // Toàn bộ hội thoại được lưu vào EssayContent dưới dạng văn bản dễ đọc cho giảng viên duyệt.
         string transcript = BuildTranscript(turns);
+
+        // ---------------------------------------------------------------------
+        // QUAN TRỌNG: chấm điểm CHỈ trên lời của thí sinh.
+        // Trước đây đem cả transcript (gồm "Examiner: ..." + header) đi chấm
+        // -> AI chấm cả câu hỏi của giám khảo, làm Fluency/Lexical/GRA bị thổi lên.
+        // ---------------------------------------------------------------------
+        string candidateOnlyText = BuildCandidateOnlyText(turns);
 
         var submission = new CandidateSubmission
         {
@@ -117,7 +157,7 @@ public class SpeakingSessionService : ISpeakingSessionService
         };
 
         var aiResult = await _aiAdapter.EvaluateSpeakingAsync(
-            section.PassageText ?? "IELTS Speaking", transcript, audioRecordUrl);
+            section.PassageText ?? "IELTS Speaking", candidateOnlyText, audioRecordUrl);
 
         // Điểm chốt = trung bình 4 tiêu chí của toàn bài (nhất quán với cách chấm Writing),
         // không dùng OverallBand rời rạc để tránh lệch với điểm từng lượt người học đã thấy.
@@ -172,20 +212,14 @@ public class SpeakingSessionService : ISpeakingSessionService
 
         await _context.SaveChangesAsync(ct);
 
+        // Speaking cần giảng viên duyệt -> không trả điểm/nhận xét AI cho thí sinh.
         return new SubmitSkillResultDto
         {
             SkillType = SkillType.Speaking,
-            RawScore = submission.RawScore ?? 0,
-            TotalQuestions = turns.Count,
-            BandScore = submission.BandScore ?? 0,
             ReportId = report.Id,
-            OverallBandScore = session.OverallBandScore,
-            CriterionScore1 = report.CriterionScore1,
-            CriterionScore2 = report.CriterionScore2,
-            CriterionScore3 = report.CriterionScore3,
-            CriterionScore4 = report.CriterionScore4,
-            FeedbackComments = report.FeedbackComments,
-            DetailedJsonAnalysis = report.DetailedJsonAnalysis
+            IsPendingReview = true,
+            ShowsRawScore = false,
+            StatusMessage = "Bài vấn đáp đã được nộp. Giảng viên sẽ chấm và xác nhận điểm chính thức cho bạn."
         };
     }
 
@@ -217,19 +251,10 @@ public class SpeakingSessionService : ISpeakingSessionService
         }).ToList();
     }
 
-    private static SpeakingPart ResolveNextPart(SpeakingPart current, int completedTurns, bool hasNextQuestion)
-    {
-        if (!hasNextQuestion) return current;
-
-        return current switch
-        {
-            // Part 1 có 3 câu -> câu thứ 4 chuyển sang Part 2.
-            SpeakingPart.Part1Introduction => completedTurns >= 2 ? SpeakingPart.Part2LongTurn : SpeakingPart.Part1Introduction,
-            SpeakingPart.Part2LongTurn => SpeakingPart.Part3Discussion,
-            _ => SpeakingPart.Part3Discussion
-        };
-    }
-
+    /// <summary>
+    /// Transcript đầy đủ để giảng viên đọc (có cả câu hỏi giám khảo).
+    /// CHỈ dùng để hiển thị — không dùng để chấm điểm.
+    /// </summary>
     private static string BuildTranscript(List<SpeakingTurnDto> turns)
     {
         var sb = new System.Text.StringBuilder();
@@ -248,6 +273,22 @@ public class SpeakingSessionService : ISpeakingSessionService
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Chỉ lấy lời của thí sinh, nối lại thành một đoạn văn liền mạch để chấm điểm.
+    /// Loại bỏ hoàn toàn câu hỏi giám khảo, header và tên part — nếu giữ lại,
+    /// AI sẽ chấm cả văn của giám khảo và điểm Fluency/Lexical bị thổi lên sai.
+    /// </summary>
+    private static string BuildCandidateOnlyText(List<SpeakingTurnDto> turns)
+    {
+        var answers = turns
+            .OrderBy(t => t.TurnNumber)
+            .Select(t => (t.Answer ?? string.Empty).Trim())
+            .Where(a => a.Length > 0)
+            .ToList();
+
+        return string.Join(" ", answers);
     }
 
     private static string DescribePart(SpeakingPart part) => part switch

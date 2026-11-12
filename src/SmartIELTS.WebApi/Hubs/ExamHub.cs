@@ -1,10 +1,13 @@
-﻿using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 
 namespace SmartIELTS.WebApi.Hubs;
 
 /// <summary>
-/// Kênh realtime của ca thi (giữ nguyên API cũ để không phá client hiện có).
+/// Kênh realtime của ca thi.
+/// Yêu cầu đăng nhập — chỉ client đã xác thực mới tham gia phòng thi được.
 /// </summary>
+[Authorize]
 public class ExamHub : Hub
 {
     public async Task JoinExamRoom(string sessionId)
@@ -28,7 +31,12 @@ public class ExamHub : Hub
 /// Hai group:
 ///  - <c>Proctoring_All</c>: mọi bảng giám sát đều nhận (dùng cho dashboard giáo viên).
 ///  - <c>Proctoring_{sessionId}</c>: chỉ nhận vi phạm của một ca thi cụ thể.
+/// <para>
+/// Chỉ Teacher/Admin được kết nối: nếu thí sinh nghe được kênh này sẽ thấy vi phạm
+/// của bạn học khác (lộ dữ liệu cá nhân).
+/// </para>
 /// </summary>
+[Authorize(Roles = "Teacher,Admin")]
 public class ProctoringHub : Hub
 {
     public const string AllProctoringGroup = "Proctoring_All";

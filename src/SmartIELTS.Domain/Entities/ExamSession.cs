@@ -57,6 +57,19 @@ public class EvaluationReport
     public string FeedbackComments { get; set; } = string.Empty;
     public string DetailedJsonAnalysis { get; set; } = string.Empty; // Danh sách bôi màu Đỏ/Vàng/Xanh, phát âm âm vị
     public bool IsApproved { get; set; } = false; // Giảng viên duyệt kép (Human-in-the-loop)
+
+    /// <summary>
+    /// Nhận xét chính thức của giảng viên — ĐÂY LÀ PHẦN DUY NHẤT thí sinh được xem.
+    /// Tách khỏi <see cref="FeedbackComments"/> (nhận xét của AI, chỉ giảng viên xem).
+    /// </summary>
+    public string? TeacherFeedback { get; set; }
+
+    /// <summary>Thời điểm giảng viên duyệt (null = chưa duyệt).</summary>
+    public DateTime? ApprovedAt { get; set; }
+
+    /// <summary>Username của giảng viên đã duyệt (audit).</summary>
+    public string? ApprovedBy { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

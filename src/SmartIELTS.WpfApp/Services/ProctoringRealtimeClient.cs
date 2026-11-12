@@ -28,14 +28,19 @@ public sealed class ProctoringRealtimeClient : IAsyncDisposable
     };
 
     /// <summary>Thử kết nối, nuốt lỗi nếu API không sẵn sàng.</summary>
-    public async Task TryConnectAsync(string apiBaseUrl)
+    public async Task TryConnectAsync(string apiBaseUrl, string? accessToken = null)
     {
         if (_connection != null) return;
 
         try
         {
             _connection = new HubConnectionBuilder()
-                .WithUrl($"{apiBaseUrl.TrimEnd('/')}/hubs/proctoring")
+                .WithUrl($"{apiBaseUrl.TrimEnd('/')}/hubs/proctoring", options =>
+                {
+                    // Hub yêu cầu [Authorize(Roles="Teacher,Admin")].
+                    if (!string.IsNullOrWhiteSpace(accessToken))
+                        options.AccessTokenProvider = () => Task.FromResult<string?>(accessToken);
+                })
                 .WithAutomaticReconnect()
                 .Build();
 

@@ -98,6 +98,63 @@ public static class SmartIeltsSchemaGuard
             }
         }
 
+        // Bảng phân công giảng viên chấm đề.
+        if (supportsRawSql && !await TableExistsAsync(context, "ExamAssignments"))
+        {
+            string createAssignmentsSql = context.Database.IsSqlServer()
+                ? @"CREATE TABLE [ExamAssignments] (
+                        [Id] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                        [ExamId] UNIQUEIDENTIFIER NOT NULL,
+                        [TeacherId] UNIQUEIDENTIFIER NOT NULL,
+                        [AllowedSkills] NVARCHAR(200) NULL,
+                        [AssignedAt] DATETIME2 NOT NULL,
+                        [IsActive] BIT NOT NULL,
+                        CONSTRAINT [FK_ExamAssignments_Exams_ExamId]
+                            FOREIGN KEY ([ExamId]) REFERENCES [Exams] ([Id]) ON DELETE CASCADE,
+                        CONSTRAINT [FK_ExamAssignments_Users_TeacherId]
+                            FOREIGN KEY ([TeacherId]) REFERENCES [Users] ([Id]) ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX [IX_ExamAssignments_ExamId_TeacherId]
+                        ON [ExamAssignments] ([ExamId], [TeacherId]);"
+                : @"CREATE TABLE IF NOT EXISTS ""ExamAssignments"" (
+                        ""Id"" TEXT NOT NULL PRIMARY KEY,
+                        ""ExamId"" TEXT NOT NULL,
+                        ""TeacherId"" TEXT NOT NULL,
+                        ""AllowedSkills"" TEXT NULL,
+                        ""AssignedAt"" TEXT NOT NULL,
+                        ""IsActive"" INTEGER NOT NULL,
+                        CONSTRAINT ""FK_ExamAssignments_Exams_ExamId""
+                            FOREIGN KEY (""ExamId"") REFERENCES ""Exams"" (""Id"") ON DELETE CASCADE,
+                        CONSTRAINT ""FK_ExamAssignments_Users_TeacherId""
+                            FOREIGN KEY (""TeacherId"") REFERENCES ""Users"" (""Id"") ON DELETE CASCADE
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ExamAssignments_ExamId_TeacherId""
+                        ON ""ExamAssignments"" (""ExamId"", ""TeacherId"");";
+
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync(createAssignmentsSql);
+                logger?.LogInformation("[SmartIELTS] Đã bổ sung bảng ExamAssignments vào database hiện có.");
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "[SmartIELTS] Không thể tạo bảng ExamAssignments.");
+            }
+        }
+
+        // Bổ sung 3 cột mới cho EvaluationReports (tách nhận xét giảng viên khỏi nhận xét AI).
+        if (supportsRawSql)
+        {
+            await AddColumnIfMissingAsync(context, "EvaluationReports", "TeacherFeedback",
+                context.Database.IsSqlServer() ? "NVARCHAR(MAX) NULL" : "TEXT NULL", logger);
+
+            await AddColumnIfMissingAsync(context, "EvaluationReports", "ApprovedAt",
+                context.Database.IsSqlServer() ? "DATETIME2 NULL" : "TEXT NULL", logger);
+
+            await AddColumnIfMissingAsync(context, "EvaluationReports", "ApprovedBy",
+                context.Database.IsSqlServer() ? "NVARCHAR(100) NULL" : "TEXT NULL", logger);
+        }
+
         // Nâng cấp mật khẩu plaintext của dữ liệu seed cũ sang PBKDF2.
         var plaintextUsers = await context.Users
             .Where(u => !string.IsNullOrEmpty(u.PasswordHash) && !u.PasswordHash.Contains("."))
@@ -112,6 +169,45 @@ public static class SmartIeltsSchemaGuard
 
         await context.SaveChangesAsync();
         logger?.LogInformation("[SmartIELTS] Đã nâng cấp {Count} mật khẩu sang PBKDF2.", plaintextUsers.Count);
+    }
+
+    /// <summary>Thêm cột nếu chưa tồn tại (EnsureCreated không cập nhật schema DB đã có).</summary>
+    private static async Task AddColumnIfMissingAsync(
+        SmartIeltsDbContext context, string table, string column, string sqlType, ILogger? logger)
+    {
+        // Whitelist: chỉ cho phép tên bảng/cột/kiểu dữ liệu đã biết -> chặn SQL injection.
+        var allowedTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "EvaluationReports" };
+        var allowedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "TeacherFeedback", "ApprovedAt", "ApprovedBy" };
+        var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "NVARCHAR(MAX) NULL", "TEXT NULL", "DATETIME2 NULL", "NVARCHAR(100) NULL" };
+
+        if (!allowedTables.Contains(table) || !allowedColumns.Contains(column) || !allowedTypes.Contains(sqlType))
+        {
+            logger?.LogWarning("[SmartIELTS] Từ chối thêm cột không nằm trong whitelist: {Table}.{Column}", table, column);
+            return;
+        }
+
+        try
+        {
+            bool isSqlServer = context.Database.IsSqlServer();
+
+            string probeSql = isSqlServer
+                ? $"SELECT CASE WHEN COL_LENGTH('dbo.{table}', '{column}') IS NULL THEN 0 ELSE 1 END"
+                : $"SELECT CASE WHEN EXISTS (SELECT 1 FROM pragma_table_info('{table}') WHERE name='{column}') THEN 1 ELSE 0 END";
+
+            var probe = await context.Database.SqlQueryRaw<int>(probeSql).ToListAsync();
+            if (probe.FirstOrDefault() == 1) return;
+
+            string alterSql = $"ALTER TABLE [{table}] ADD [{column}] {sqlType};";
+            await context.Database.ExecuteSqlRawAsync(alterSql);
+
+            logger?.LogInformation("[SmartIELTS] Đã thêm cột {Table}.{Column}.", table, column);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "[SmartIELTS] Không thêm được cột {Table}.{Column}.", table, column);
+        }
     }
 
     private static async Task<bool> TableExistsAsync(SmartIeltsDbContext context, string tableName)

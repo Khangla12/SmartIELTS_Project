@@ -208,39 +208,42 @@
         <!-- ============================================================
              INPUTS
              ============================================================ -->
+        <!--
+            KHÔNG tự viết ControlTemplate cho TextBox.
+            Lý do: template tự viết trước đây làm vùng nhập co lại -> toàn bộ ô nhập
+            (kể cả trang đăng nhập) không click/gõ được.
+            Chỉ set thuộc tính màu sắc/kích thước, giữ template mặc định của WPF.
+        -->
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="{StaticResource BgSurface}"/>
             <Setter Property="Foreground" Value="{StaticResource BodyText}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BorderSubtle}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,6"/>
-            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
             <Setter Property="CaretBrush" Value="{StaticResource TextPrimary}"/>
             <Setter Property="SelectionBrush" Value="{StaticResource PrimaryTeal}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6">
-                            <ScrollViewer x:Name="PART_ContentHost"
-                                          Margin="{TemplateBinding Padding}"
-                                          VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryTeal}"/>
-                                <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgSubtle}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource PrimaryTeal}"/>
+                    <Setter Property="BorderThickness" Value="2"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="{StaticResource BgSubtle}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- TextBox nhiều dòng: chữ căn trên, dùng cho editor/transcript -->
+        <Style x:Key="MultilineTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="VerticalContentAlignment" Value="Top"/>
+            <Setter Property="AcceptsReturn" Value="True"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Padding" Value="14,12"/>
         </Style>
 
         <Style TargetType="PasswordBox">
@@ -500,6 +503,165 @@
                 </StackPanel>
             </Border>
 
+            <!-- ==================== VIEW 1b: CANDIDATE HOME (chọn chức năng) ==================== -->
+            <Grid x:Name="ViewCandidateHome" Visibility="Collapsed">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="720">
+                    <TextBlock Text="Chào mừng trở lại" Style="{StaticResource TextH1}"
+                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock x:Name="TxtHomeCandidateName" Text="Thí sinh"
+                               Style="{StaticResource TextSmall}" HorizontalAlignment="Center"
+                               Margin="0,0,0,28"/>
+
+                    <UniformGrid Columns="2">
+                        <!-- Vào phòng thi -->
+                        <Border Background="{StaticResource BgSurface}"
+                                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="10" Padding="24" Margin="0,0,10,0" Cursor="Hand"
+                                MouseLeftButtonUp="CardStartExam_Click">
+                            <StackPanel>
+                                <Border Background="{StaticResource PrimarySoft}" CornerRadius="10"
+                                        Width="52" Height="52" HorizontalAlignment="Left" Margin="0,0,0,14">
+                                    <TextBlock Text="✎" FontSize="24" Foreground="{StaticResource PrimaryTeal}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Text="Vào phòng thi" Style="{StaticResource TextH3}" FontSize="16"/>
+                                <TextBlock Text="Bắt đầu ca thi mới và làm bài 4 kỹ năng Listening, Reading, Writing, Speaking."
+                                           Foreground="{StaticResource TextMuted}" FontSize="12"
+                                           TextWrapping="Wrap" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Coi điểm -->
+                        <Border Background="{StaticResource BgSurface}"
+                                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="10" Padding="24" Margin="10,0,0,0" Cursor="Hand"
+                                MouseLeftButtonUp="CardViewResults_Click">
+                            <StackPanel>
+                                <Border Background="{StaticResource AccentSoft}" CornerRadius="10"
+                                        Width="52" Height="52" HorizontalAlignment="Left" Margin="0,0,0,14">
+                                    <TextBlock Text="📊" FontSize="24" Foreground="{StaticResource AccentBlue}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Text="Coi điểm của tôi" Style="{StaticResource TextH3}" FontSize="16"/>
+                                <TextBlock Text="Xem lại kết quả các ca thi đã làm và trạng thái duyệt điểm của giảng viên."
+                                           Foreground="{StaticResource TextMuted}" FontSize="12"
+                                           TextWrapping="Wrap" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <TextBlock x:Name="TxtHomeHint" Text=""
+                               Foreground="{StaticResource TextMuted}" FontSize="12"
+                               HorizontalAlignment="Center" Margin="0,24,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- ==================== VIEW 1c: CANDIDATE RESULT HISTORY ==================== -->
+            <Grid x:Name="ViewCandidateResults" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="{StaticResource BgSurface}"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                        CornerRadius="10" Padding="18" Margin="0,0,0,14">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <StackPanel Margin="0,0,240,0">
+                                <TextBlock Text="Kết quả thi của tôi" Style="{StaticResource TextH2}" FontSize="17"/>
+                                <TextBlock x:Name="TxtResultsSummary" Text="Chưa có ca thi nào."
+                                           Foreground="{StaticResource TextMuted}" FontSize="12" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <Button Content="Làm mới" Style="{StaticResource SecondaryButton}"
+                                        Click="BtnRefreshMyResults_Click" Padding="12,7" Margin="0,0,8,0" FontSize="12"/>
+                                <Button Content="Quay lại" Style="{StaticResource SecondaryButton}"
+                                        Click="BtnBackFromResults_Click" Padding="12,7" FontSize="12"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Bộ lọc -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="240"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox x:Name="TxtMyFilterKeyword" Grid.Column="0" Height="34" FontSize="13"
+                                     ToolTip="Tìm theo tên đề thi" Margin="0,0,8,0"/>
+                            <ComboBox x:Name="CboMyFilterStatus" Grid.Column="1" Height="34" Margin="0,0,8,0"
+                                      SelectionChanged="MyFilter_Changed" FontSize="12"/>
+                            <ComboBox x:Name="CboMyFilterSkill" Grid.Column="2" Height="34" Margin="0,0,8,0"
+                                      SelectionChanged="MyFilter_Changed" FontSize="12"/>
+                            <ComboBox x:Name="CboMyFilterSort" Grid.Column="3" Height="34"
+                                      SelectionChanged="MyFilter_Changed" FontSize="12"/>
+                            <Button Grid.Column="4" Content="Tìm" HorizontalAlignment="Left" Margin="8,0,0,0"
+                                    Padding="18,7" FontSize="12" Click="BtnApplyMyFilter_Click"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="1" Background="{StaticResource BgSurface}"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                        CornerRadius="10" Padding="16">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock x:Name="TxtNoResults" Text="Bạn chưa có ca thi nào. Hãy bấm “Vào phòng thi” để bắt đầu."
+                                   Foreground="{StaticResource TextMuted}" FontSize="13"
+                                   HorizontalAlignment="Center" Margin="0,40,0,0" Visibility="Collapsed"/>
+
+                        <ListBox x:Name="ListMyResults" Grid.Row="1" BorderThickness="0"
+                                 SelectionChanged="ListMyResults_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource BgSubtle}" CornerRadius="8"
+                                            Padding="14" Margin="0,4" BorderBrush="{StaticResource BorderSubtle}"
+                                            BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                                <TextBlock Text="{Binding ExamTitle}" FontWeight="SemiBold"
+                                                           FontSize="13" Foreground="{StaticResource TextPrimary}"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock FontSize="11" Foreground="{StaticResource TextMuted}" Margin="0,4,0,0">
+                                                    <Run Text="{Binding StartTime, StringFormat='Bắt đầu: {0:HH:mm dd/MM/yyyy}'}"/>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding StatusText}" FontSize="11" Margin="0,4,0,0"
+                                                           Foreground="{StaticResource AccentBlue}"/>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" MinWidth="150">
+                                                <Border Background="{StaticResource PrimarySoft}" CornerRadius="6"
+                                                        Padding="10,6">
+                                                    <TextBlock Text="{Binding OverallScoreText}" FontWeight="Bold"
+                                                               FontSize="13" Foreground="{StaticResource PrimaryTeal}"
+                                                               HorizontalAlignment="Center"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding SkillSummary}" FontSize="10"
+                                                           Foreground="{StaticResource TextMuted}"
+                                                           TextAlignment="Center" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Grid>
+
             <!-- ==================== VIEW 2: EXAM WORKSPACE ==================== -->
             <Grid x:Name="ViewExam" Visibility="Collapsed">
                 <Grid.RowDefinitions>
@@ -700,8 +862,26 @@
                         <Border Grid.Column="2" Background="{StaticResource BgSurface}"
                                 BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
                                 CornerRadius="10" Padding="20">
-                            <DockPanel>
-                                <Border DockPanel.Dock="Bottom" Background="{StaticResource BgSubtle}" CornerRadius="6"
+                            <!--
+                                Dùng Grid thay DockPanel: hàng "*" bảo đảm editor LUÔN lấp đầy
+                                vùng còn lại và co giãn theo cửa sổ. Trước đây DockPanel +
+                                Height="Auto" khiến ô nhập cao vượt khung -> không click/gõ được.
+                            -->
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBox x:Name="TxtEssayEditor"
+                                         Grid.Row="0"
+                                         Style="{StaticResource MultilineTextBox}"
+                                         MinHeight="200"
+                                         VerticalAlignment="Stretch"
+                                         TextChanged="TxtEssayEditor_TextChanged"
+                                         PreviewKeyDown="TxtEssayEditor_PreviewKeyDown"/>
+
+                                <Border Grid.Row="1" Background="{StaticResource BgSubtle}" CornerRadius="6"
                                         Padding="14,9" Margin="0,12,0,0">
                                     <Grid>
                                         <TextBlock x:Name="TxtWordCount"
@@ -711,10 +891,7 @@
                                                    Foreground="{StaticResource TextMuted}" FontSize="11"/>
                                     </Grid>
                                 </Border>
-                                <TextBox x:Name="TxtEssayEditor" TextWrapping="Wrap" AcceptsReturn="True"
-                                         VerticalScrollBarVisibility="Auto" FontSize="15" Padding="16"
-                                         TextChanged="TxtEssayEditor_TextChanged" PreviewKeyDown="TxtEssayEditor_PreviewKeyDown"/>
-                            </DockPanel>
+                            </Grid>
                         </Border>
                     </Grid>
 
@@ -814,8 +991,7 @@
 
                                         <TextBlock Text="CÂU TRẢ LỜI CỦA BẠN" Foreground="{StaticResource TextMuted}"
                                                    FontWeight="SemiBold" FontSize="11" Margin="0,0,0,6"/>
-                                        <TextBox x:Name="TxtSpeakingTranscript" Height="110" TextWrapping="Wrap"
-                                                 AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontSize="14"/>
+                                        <TextBox x:Name="TxtSpeakingTranscript" Style="{StaticResource MultilineTextBox}" Height="130"/>
 
                                         <TextBlock x:Name="TxtSpeechStatus" Text="" Foreground="{StaticResource TextMuted}"
                                                    FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/>
@@ -832,7 +1008,7 @@
                                                                FontSize="11" VerticalAlignment="Center"/>
                                                     <Border Background="{StaticResource SuccessSoft}" CornerRadius="999"
                                                             Padding="10,3" HorizontalAlignment="Right">
-                                                        <TextBlock x:Name="TxtTurnBand" Text="Band --"
+                                                        <TextBlock x:Name="TxtTurnBand" Text="Chưa chấm"
                                                                    Foreground="{StaticResource SuccessGreen}"
                                                                    FontWeight="Bold" FontSize="12"/>
                                                     </Border>
@@ -926,7 +1102,7 @@
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button Content="Điền mẫu nhanh" Style="{StaticResource SecondaryButton}"
                                     Margin="0,0,10,0" Click="BtnFillDemoAnswers_Click" Padding="14,7" FontSize="12"/>
-                            <Button x:Name="BtnSubmitCurrentSkill" Content="Nộp bài &amp; chấm điểm" Click="BtnSubmitCurrentSkill_Click"/>
+                            <Button x:Name="BtnSubmitCurrentSkill" Content="Nộp bài" Click="BtnSubmitCurrentSkill_Click"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -1004,8 +1180,16 @@
                                                Foreground="{StaticResource BodyText}" FontSize="14"
                                                LineHeight="23" Margin="0,0,0,18"/>
 
-                                    <Border Background="{StaticResource SuccessSoft}" CornerRadius="8"
-                                            Padding="16" Margin="0,0,0,14">
+                                    <!--
+                                        Hai khối dưới đây chứa dữ liệu do AI sinh ra (câu hỏi phản biện, bài mẫu).
+                                        Thí sinh KHÔNG được xem theo quy chế khảo thí: AI chỉ hỗ trợ giảng viên.
+                                        Giữ control (để không vỡ code-behind) nhưng ẩn hoàn toàn.
+
+                                        Nếu sau này cần hiển thị lại (ví dụ chế độ luyện tập không tính điểm),
+                                        đặt Visibility="Visible" và bật dữ liệu trong ShowFinalReportAsync.
+                                    -->
+                                    <Border Visibility="Collapsed" Background="{StaticResource SuccessSoft}"
+                                            CornerRadius="8" Padding="16" Margin="0,0,0,14">
                                         <StackPanel>
                                             <TextBlock Text="CÂU HỎI PHẢN BIỆN THÍCH ỨNG (ADAPTIVE FOLLOW-UP)"
                                                        Foreground="{StaticResource SuccessGreen}" FontWeight="Bold"
@@ -1016,7 +1200,7 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Background="{StaticResource BgSubtle}" CornerRadius="8" Padding="16">
+                                    <Border Visibility="Collapsed" Background="{StaticResource BgSubtle}" CornerRadius="8" Padding="16">
                                         <StackPanel>
                                             <TextBlock Text="BÀI MẪU THAM KHẢO BAND 8.0+"
                                                        Foreground="{StaticResource TextMuted}" FontWeight="Bold"
@@ -1122,6 +1306,9 @@
                             <Button x:Name="BtnDashTabGrading" Content="Duyệt điểm"
                                     Background="Transparent" Foreground="{StaticResource BodyText}"
                                     Margin="0,0,4,0" Click="BtnDashTab_Click" Tag="Grading" Padding="16,8" FontSize="13"/>
+                            <Button x:Name="BtnDashTabHistory" Content="Lịch sử đã chấm"
+                                    Background="Transparent" Foreground="{StaticResource BodyText}"
+                                    Margin="0,0,4,0" Click="BtnDashTab_Click" Tag="History" Padding="16,8" FontSize="13"/>
                             <Button x:Name="BtnDashTabExams" Content="Quản trị đề thi"
                                     Background="Transparent" Foreground="{StaticResource BodyText}"
                                     Click="BtnDashTab_Click" Tag="Exams" Padding="16,8" FontSize="13"/>
@@ -1386,14 +1573,79 @@
 
                                     <TextBlock Text="GHI CHÚ CỦA GIẢNG VIÊN" Foreground="{StaticResource TextMuted}"
                                                FontWeight="SemiBold" FontSize="11" Margin="0,0,0,6"/>
-                                    <TextBox x:Name="TxtTeacherFeedback" Height="70" TextWrapping="Wrap" AcceptsReturn="True"
-                                             Text="Bài viết có cấu trúc chặt chẽ, luận điểm rõ ràng. Đã thẩm định và chốt điểm chính thức."
-                                             Margin="0,0,0,16"/>
+                                    <TextBox x:Name="TxtTeacherFeedback" Style="{StaticResource MultilineTextBox}" Height="80" Margin="0,0,0,16"
+                                             Text="Bài viết có cấu trúc chặt chẽ, luận điểm rõ ràng. Đã thẩm định và chốt điểm chính thức."/>
 
-                                    <Button Content="Phê duyệt &amp; chốt điểm chính thức" Height="46"
+                                    <Button x:Name="BtnApproveScore" Content="Phê duyệt &amp; chốt điểm chính thức" Height="46"
                                             Background="{StaticResource SuccessGreen}" Click="BtnApproveScore_Click"/>
                                 </StackPanel>
                             </ScrollViewer>
+                        </Border>
+                    </Grid>
+
+                    <!-- SUB-PANEL 3: LỊCH SỬ ĐÃ CHẤM -->
+                    <Grid x:Name="PanelDashHistory" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="{StaticResource BgSurface}"
+                                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="10" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <TextBlock Text="Lịch sử bài đã chấm" Style="{StaticResource TextH3}" FontSize="14"/>
+                                    <TextBlock x:Name="TxtHistorySummary" Text="Chưa có bài nào."
+                                               HorizontalAlignment="Right" Foreground="{StaticResource TextMuted}"
+                                               FontSize="12" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="240"/>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBox x:Name="TxtHistoryKeyword" Grid.Column="0" Height="34" FontSize="13"
+                                             ToolTip="Tìm theo tên thí sinh / username / tên đề" Margin="0,0,8,0"/>
+                                    <ComboBox x:Name="CboHistorySkill" Grid.Column="1" Height="34" Margin="0,0,8,0"
+                                              SelectionChanged="HistoryFilter_Changed" FontSize="12"/>
+                                    <ComboBox x:Name="CboHistoryPeriod" Grid.Column="2" Height="34" Margin="0,0,8,0"
+                                              SelectionChanged="HistoryFilter_Changed" FontSize="12"/>
+                                    <ComboBox x:Name="CboHistorySort" Grid.Column="3" Height="34"
+                                              SelectionChanged="HistoryFilter_Changed" FontSize="12"/>
+                                    <Button Grid.Column="4" Content="Tìm" HorizontalAlignment="Left" Margin="8,0,0,0"
+                                            Padding="18,7" FontSize="12" Click="BtnApplyHistoryFilter_Click"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Row="1" Background="{StaticResource BgSurface}"
+                                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
+                                CornerRadius="10" Padding="16">
+                            <Grid>
+                                <TextBlock x:Name="TxtNoHistory" Text="Chưa có bài nào được chấm."
+                                           Foreground="{StaticResource TextMuted}" FontSize="13"
+                                           HorizontalAlignment="Center" Margin="0,40,0,0" Visibility="Collapsed"/>
+
+                                <ListView x:Name="ListGradedHistory" SelectionChanged="ListGradedHistory_SelectionChanged">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Ngày chấm" DisplayMemberBinding="{Binding ApprovedDateText}" Width="120"/>
+                                            <GridViewColumn Header="Thí sinh" DisplayMemberBinding="{Binding CandidateName}" Width="150"/>
+                                            <GridViewColumn Header="Kỹ năng" DisplayMemberBinding="{Binding SkillText}" Width="90"/>
+                                            <GridViewColumn Header="AI đề xuất" DisplayMemberBinding="{Binding AiProposedText}" Width="90"/>
+                                            <GridViewColumn Header="Điểm chốt" DisplayMemberBinding="{Binding OfficialText}" Width="90"/>
+                                            <GridViewColumn Header="Người duyệt" DisplayMemberBinding="{Binding ApprovedBy}" Width="100"/>
+                                            <GridViewColumn Header="Nhận xét" DisplayMemberBinding="{Binding TeacherFeedback}" Width="280"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </Grid>
                         </Border>
                     </Grid>
                 </Grid>

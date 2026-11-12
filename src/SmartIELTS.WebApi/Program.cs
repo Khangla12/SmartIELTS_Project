@@ -133,7 +133,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<ExamHub>("/hubs/exam");
-app.MapHub<ProctoringHub>("/hubs/proctoring");
+app.MapHub<ExamHub>("/hubs/exam").RequireAuthorization();
+app.MapHub<ProctoringHub>("/hubs/proctoring").RequireAuthorization();
 
 app.Run();

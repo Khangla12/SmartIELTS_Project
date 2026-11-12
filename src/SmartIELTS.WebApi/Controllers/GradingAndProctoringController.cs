@@ -24,26 +24,40 @@ public class GradingController : ControllerBase
 
     [HttpGet("pending-reviews")]
     public async Task<IActionResult> GetPendingReviews(CancellationToken ct)
-        => Ok(await _dashboard.GetPendingReviewsAsync(ct));
+    {
+        // Truyền username để lọc theo phân công (Admin vẫn thấy tất cả).
+        string? teacher = User.Identity?.Name;
+        return Ok(await _dashboard.GetPendingReviewsAsync(teacher, ct));
+    }
 
     [HttpPost("approve-score")]
     public async Task<IActionResult> ApproveScore([FromBody] TeacherApproveScoreRequestDto request, CancellationToken ct)
     {
-        var result = await _dashboard.ApproveScoreAsync(request, ct);
-        if (result == null) return NotFound(new { message = "Không tìm thấy bản đánh giá!" });
+        // Username giảng viên lấy từ JWT để ghi audit trail.
+        string? teacher = User.Identity?.Name;
 
-        return Ok(new
+        try
         {
-            message = "Giáo viên đã duyệt điểm thành công!",
-            approvedBand = result.OfficialBandScore,
-            overallBand = result.OverallBandScore
-        });
+            var result = await _dashboard.ApproveScoreAsync(request, teacher, ct);
+            if (result == null) return NotFound(new { message = "Không tìm thấy bản đánh giá!" });
+
+            return Ok(new
+            {
+                message = "Giáo viên đã duyệt điểm thành công!",
+                approvedBand = result.OfficialBandScore,
+                overallBand = result.OverallBandScore
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 }
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Roles = "Teacher,Admin")]
 public class ProctoringController : ControllerBase
 {
     private readonly ITeachingDashboardService _dashboard;
@@ -93,18 +107,25 @@ public class ProctoringController : ControllerBase
     {
         string? proctor = User.Identity?.Name;
 
-        var result = await _dashboard.TerminateSessionAsync(sessionId, request.Reason, proctor, ct);
-        if (result == null) return NotFound(new { message = "Ca thi không tồn tại!" });
-
-        return Ok(new
+        try
         {
-            message = "Đã đình chỉ ca thi và ghi biên bản.",
-            result.SessionId,
-            result.CandidateName,
-            result.TerminatedAt,
-            result.Reason,
-            result.PartialOverallBand,
-            result.SubmittedSkillCount
-        });
+            var result = await _dashboard.TerminateSessionAsync(sessionId, request.Reason, proctor, ct);
+            if (result == null) return NotFound(new { message = "Ca thi không tồn tại!" });
+
+            return Ok(new
+            {
+                message = "Đã đình chỉ ca thi và ghi biên bản.",
+                result.SessionId,
+                result.CandidateName,
+                result.TerminatedAt,
+                result.Reason,
+                result.PartialOverallBand,
+                result.SubmittedSkillCount
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
 }

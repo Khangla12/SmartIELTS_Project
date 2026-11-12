@@ -69,7 +69,23 @@ public class ExamManagementService : IExamManagementService
         var exam = await LoadExamAsync(examId, ct, tracking: true);
         if (exam == null) return null;
 
-        exam.Title = request.Title.Trim();
+        // Đề đã có ca thi thì không cho sửa cấu trúc (bảo toàn điểm đã chấm).
+        // Chỉ cho phép bật/tắt IsActive để ngừng sử dụng đề.
+        bool hasSessions = await _context.ExamSessions.AnyAsync(s => s.ExamId == examId, ct);
+        if (hasSessions)
+        {
+            bool structuralChange =
+                !string.Equals(exam.Title, request.Title?.Trim(), StringComparison.Ordinal) ||
+                exam.ExamType != request.ExamType ||
+                exam.TotalDurationMinutes != request.TotalDurationMinutes;
+
+            if (structuralChange)
+                throw new InvalidOperationException(
+                    "Đề thi đã có ca thi. Chỉ được thay đổi trạng thái hoạt động (IsActive), " +
+                    "không được sửa tiêu đề / loại đề / thời lượng để bảo toàn kết quả đã chấm.");
+        }
+
+        exam.Title = (request.Title ?? string.Empty).Trim();
         exam.Description = request.Description?.Trim() ?? string.Empty;
         exam.ExamType = request.ExamType;
         exam.TotalDurationMinutes = request.TotalDurationMinutes;
@@ -133,6 +149,20 @@ public class ExamManagementService : IExamManagementService
 
         if (section == null) return null;
 
+        await EnsureExamHasNoSessionsAsync(section.ExamId, "sửa phần thi", ct);
+
+        // Đổi SkillType sẽ phá ánh xạ chấm điểm (mỗi kỹ năng chỉ 1 section).
+        if (section.SkillType != request.SkillType)
+        {
+            bool duplicate = await _context.ExamSections
+                .AnyAsync(s => s.ExamId == section.ExamId
+                            && s.Id != section.Id
+                            && s.SkillType == request.SkillType, ct);
+
+            if (duplicate)
+                throw new InvalidOperationException($"Đề thi đã có phần thi {request.SkillType}. Mỗi kỹ năng chỉ một phần.");
+        }
+
         section.SkillType = request.SkillType;
         section.SectionOrder = request.SectionOrder;
         section.DurationMinutes = request.DurationMinutes;
@@ -147,6 +177,8 @@ public class ExamManagementService : IExamManagementService
     {
         var section = await _context.ExamSections.FirstOrDefaultAsync(s => s.Id == sectionId, ct);
         if (section == null) return false;
+
+        await EnsureExamHasNoSessionsAsync(section.ExamId, "xóa phần thi", ct);
 
         _context.ExamSections.Remove(section);
         await _context.SaveChangesAsync(ct);
@@ -179,8 +211,14 @@ public class ExamManagementService : IExamManagementService
 
     public async Task<QuestionAdminDto?> UpdateQuestionAsync(Guid questionId, UpdateQuestionRequestDto request, CancellationToken ct = default)
     {
-        var question = await _context.Questions.FirstOrDefaultAsync(q => q.Id == questionId, ct);
+        var question = await _context.Questions
+            .Include(q => q.Section)
+            .FirstOrDefaultAsync(q => q.Id == questionId, ct);
+
         if (question == null) return null;
+
+        if (question.Section != null)
+            await EnsureExamHasNoSessionsAsync(question.Section.ExamId, "sửa câu hỏi", ct);
 
         ValidateOptions(request.OptionsJson);
 
@@ -197,12 +235,32 @@ public class ExamManagementService : IExamManagementService
 
     public async Task<bool> DeleteQuestionAsync(Guid questionId, CancellationToken ct = default)
     {
-        var question = await _context.Questions.FirstOrDefaultAsync(q => q.Id == questionId, ct);
+        var question = await _context.Questions
+            .Include(q => q.Section)
+            .FirstOrDefaultAsync(q => q.Id == questionId, ct);
+
         if (question == null) return false;
+
+        if (question.Section != null)
+            await EnsureExamHasNoSessionsAsync(question.Section.ExamId, "xóa câu hỏi", ct);
 
         _context.Questions.Remove(question);
         await _context.SaveChangesAsync(ct);
         return true;
+    }
+
+    /// <summary>
+    /// Chặn sửa/xóa cấu trúc đề đã có ca thi: đổi đáp án/câu hỏi sau khi thi
+    /// sẽ làm sai lệch điểm đã chấm và không tái lập được kết quả.
+    /// </summary>
+    private async Task EnsureExamHasNoSessionsAsync(Guid examId, string action, CancellationToken ct)
+    {
+        bool hasSessions = await _context.ExamSessions.AnyAsync(s => s.ExamId == examId, ct);
+
+        if (hasSessions)
+            throw new InvalidOperationException(
+                $"Không thể {action}: đề thi đã có ca thi. " +
+                "Hãy tạo đề mới thay vì sửa đề đang được sử dụng.");
     }
 
     private Task<Exam?> LoadExamAsync(Guid examId, CancellationToken ct, bool tracking = false)

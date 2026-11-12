@@ -13,7 +13,10 @@ public class BandScoreCalculatorTests
     [InlineData(30, 7.0)]
     [InlineData(26, 6.5)]
     [InlineData(23, 6.0)]
-    [InlineData(0, 2.0)]
+    [InlineData(16, 5.0)]
+    [InlineData(3, 2.5)]
+    [InlineData(1, 2.0)]
+    [InlineData(0, 1.0)]   // 0 câu đúng không phải band 2.0 như bảng cũ
     public void Listening_raw_score_maps_to_expected_band(int raw, double expected)
         => Assert.Equal(expected, BandScoreCalculator.ConvertListeningRawToBand(raw));
 
@@ -25,9 +28,30 @@ public class BandScoreCalculatorTests
     [InlineData(27, 6.5)]
     [InlineData(23, 6.0)]
     [InlineData(4, 2.5)]
-    [InlineData(0, 2.0)]
+    [InlineData(1, 1.5)]
+    [InlineData(0, 1.0)]
     public void Reading_raw_score_maps_to_expected_band(int raw, double expected)
         => Assert.Equal(expected, BandScoreCalculator.ConvertReadingRawToBand(raw));
+
+    [Fact]
+    public void Reading_general_training_is_stricter_than_academic()
+    {
+        // Cùng 30 câu đúng: Academic = 7.0, General Training = 6.0.
+        double academic = BandScoreCalculator.ConvertReadingRawToBand(30, isAcademic: true);
+        double general = BandScoreCalculator.ConvertReadingRawToBand(30, isAcademic: false);
+
+        Assert.Equal(7.0, academic);
+        Assert.Equal(6.0, general);
+        Assert.True(general < academic,
+            "Bảng General Training phải khắt khe hơn Academic ở cùng số câu đúng.");
+    }
+
+    [Fact]
+    public void Zero_correct_answers_is_not_band_two()
+    {
+        Assert.True(BandScoreCalculator.ConvertListeningRawToBand(0) < 2.0);
+        Assert.True(BandScoreCalculator.ConvertReadingRawToBand(0) < 2.0);
+    }
 
     [Theory]
     [InlineData(5, 5, 40)]

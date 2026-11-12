@@ -13,4 +13,5 @@ public class User
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<ExamSession> ExamSessions { get; set; } = new List<ExamSession>();
+    public ICollection<ExamAssignment> Assignments { get; set; } = new List<ExamAssignment>();
 }

@@ -8,6 +8,12 @@ public class StartSessionResultDto
     public Guid SessionId { get; set; }
     public DateTime StartTime { get; set; }
     public ExamDto Exam { get; set; } = new();
+
+    /// <summary>True = tiếp tục ca thi đang làm dở (không phải ca mới).</summary>
+    public bool Resumed { get; set; }
+
+    /// <summary>Các kỹ năng đã nộp trong ca thi này (để client chuyển tới kỹ năng còn thiếu).</summary>
+    public List<SkillType> SubmittedSkills { get; set; } = new();
 }
 
 public class SubmitSkillResultDto
@@ -27,6 +33,23 @@ public class SubmitSkillResultDto
     public double? CriterionScore4 { get; set; }
     public string FeedbackComments { get; set; } = string.Empty;
     public string DetailedJsonAnalysis { get; set; } = string.Empty;
+
+    // ---------------------------------------------------------------------
+    // Trạng thái duyệt — quyết định UI hiển thị gì cho thí sinh
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// True = bài đang chờ giảng viên duyệt (Writing/Speaking).
+    /// Khi đó <see cref="BandScore"/>, <see cref="FeedbackComments"/>… đã được
+    /// xóa về giá trị trung tính để thí sinh không thấy điểm AI.
+    /// </summary>
+    public bool IsPendingReview { get; set; }
+
+    /// <summary>Thông điệp hiển thị cho thí sinh sau khi nộp.</summary>
+    public string StatusMessage { get; set; } = string.Empty;
+
+    /// <summary>Số câu đúng (chỉ có ý nghĩa với Listening/Reading).</summary>
+    public bool ShowsRawScore { get; set; }
 }
 
 /// <summary>
@@ -41,8 +64,21 @@ public interface IExamWorkflowService
 
     Task<SessionResultDto?> GetSessionResultAsync(Guid sessionId, CancellationToken ct = default);
 
+    /// <summary>Kết quả đầy đủ cho giảng viên/admin: bao gồm điểm và nhận xét của AI.</summary>
+    Task<SessionResultDto?> GetSessionResultForStaffAsync(Guid sessionId, CancellationToken ct = default);
+
     /// <summary>Lưu nháp bài làm (Offline-First autosave). Trả về true nếu tìm thấy ca thi.</summary>
     Task<bool> SaveDraftAsync(AutosaveDraftRequestDto request, CancellationToken ct = default);
 
     Task<AutosaveDraftRequestDto?> GetDraftAsync(Guid sessionId, SkillType skillType, CancellationToken ct = default);
+
+    /// <summary>UserId chủ sở hữu ca thi (dùng để chặn xem điểm người khác).</summary>
+    Task<Guid?> GetSessionOwnerIdAsync(Guid sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lịch sử các ca thi của MỘT thí sinh (mới nhất trước).
+    /// Dùng cho màn hình "Coi điểm của tôi" sau khi đăng nhập.
+    /// </summary>
+    Task<IReadOnlyList<CandidateSessionHistoryDto>> GetCandidateHistoryAsync(
+        Guid userId, CancellationToken ct = default);
 }

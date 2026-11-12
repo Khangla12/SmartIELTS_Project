@@ -248,42 +248,13 @@ public partial class MainWindow : Window
             // Teacher / Admin vào bàn giám sát & duyệt điểm
             if (user.Role == UserRole.Teacher || user.Role == UserRole.Admin)
             {
-                OpenTeacherDashboard(user);
+                OpenTeacherDashboard(user, password);
                 return;
             }
 
-            var exam = await _examManager.GetActiveExamAsync();
-            if (exam == null)
-            {
-                MessageBox.Show("Không tìm thấy đề thi hoạt động!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            await _examManager.StartSessionAsync();
-
-            // Thời gian thi lấy theo cấu hình đề thi thay vì hard-code.
-            _remainingSeconds = Math.Max(1, exam.TotalDurationMinutes) * 60;
-            UpdateTimerText();
-
-            TxtCandidateBadge.Text = $"Thí sinh: {user.FullName} ({user.Username})";
-            ViewLogin.Visibility = Visibility.Collapsed;
-            ViewTeacherDashboard.Visibility = Visibility.Collapsed;
-            ViewResult.Visibility = Visibility.Collapsed;
-            ViewExam.Visibility = Visibility.Visible;
-            BtnLogout.Visibility = Visibility.Visible;
-            BadgeKiosk.Visibility = Visibility.Visible;
-            BtnToggleKiosk.Visibility = Visibility.Visible;
-
-            try
-            {
-                _keyboardHook.Install();
-            }
-            catch { /* Không đủ quyền thì bỏ qua, không chặn luồng thi */ }
-
-            _examTimer.Start();
-            _autosaveTimer.Start();
-
-            LoadSkillView(SkillType.Listening);
+            // Thí sinh: mở màn chọn "Vào phòng thi" hoặc "Coi điểm của tôi".
+            // (Trước đây vào thẳng phòng thi nên không xem lại được điểm.)
+            await ShowCandidateHomeAsync(user);
         }
         catch (Exception ex)
         {
@@ -292,7 +263,388 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void LoadSkillView(SkillType skill)
+    /// <summary>ViewModel cho danh sách kết quả (để bind vào ListBox).</summary>
+    public class MyResultRow
+    {
+        public Guid SessionId { get; set; }
+        public string ExamTitle { get; set; } = string.Empty;
+        public DateTime StartTime { get; set; }
+        public string StatusText { get; set; } = string.Empty;
+        public string OverallScoreText { get; set; } = string.Empty;
+        public string SkillSummary { get; set; } = string.Empty;
+        public bool IsFullyApproved { get; set; }
+
+        /// <summary>Có ít nhất 1 kỹ năng đã được giảng viên duyệt (có điểm để xem).</summary>
+        public bool HasAnyApprovedSkill { get; set; }
+
+        public string? TeacherFeedback { get; set; }
+    }
+
+    private List<MyResultRow> _myResults = new();
+    private User? _loggedInCandidate;
+
+    /// <summary>Các kỹ năng đã nộp trong ca thi hiện tại (để cảnh báo khi chuyển tab).</summary>
+    private readonly HashSet<SkillType> _submittedSkills = new();
+
+    /// <summary>Đang gửi bài lên server — chặn bấm nút nhiều lần.</summary>
+    private bool _isSubmitting;
+
+    /// <summary>Sau khi đăng nhập: hiện màn chọn "Vào phòng thi" hoặc "Coi điểm".</summary>
+    private async Task ShowCandidateHomeAsync(User user)
+    {
+        _loggedInCandidate = user;
+
+        TxtHomeCandidateName.Text = $"{user.FullName} ({user.Username})";
+        TxtCandidateBadge.Text = $"Thí sinh: {user.FullName}";
+        BtnLogout.Visibility = Visibility.Visible;
+        BadgeKiosk.Visibility = Visibility.Collapsed;
+        BtnToggleKiosk.Visibility = Visibility.Collapsed;
+
+        // Tóm tắt nhanh để thí sinh biết mình có bài chờ chấm.
+        try
+        {
+            var history = await _examManager.GetMyHistoryAsync();
+            int pending = history.Sum(h => h.PendingReviewCount);
+            int reviewed = history.Count(h => h.IsFullyApproved);
+
+            TxtHomeHint.Text = history.Count == 0
+                ? "Bạn chưa có ca thi nào."
+                : pending > 0
+                    ? $"Bạn có {pending} kỹ năng đang chờ giảng viên chấm điểm."
+                    : reviewed > 0
+                        ? $"Bạn đã có {reviewed} ca thi được chấm xong."
+                        : "Bạn chưa nộp đủ 4 kỹ năng ở ca thi gần nhất.";
+        }
+        catch (Exception ex)
+        {
+            TxtHomeHint.Text = $"Không tải được lịch sử: {ex.Message}";
+        }
+
+        ViewLogin.Visibility = Visibility.Collapsed;
+        ViewTeacherDashboard.Visibility = Visibility.Collapsed;
+        ViewResult.Visibility = Visibility.Collapsed;
+        ViewAdminExams.Visibility = Visibility.Collapsed;
+        ViewExam.Visibility = Visibility.Collapsed;
+        ViewCandidateResults.Visibility = Visibility.Collapsed;
+        ViewCandidateHome.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Bấm thẻ "Vào phòng thi".</summary>
+    private async void CardStartExam_Click(object sender, MouseButtonEventArgs e)
+    {
+        await StartExamForCurrentCandidateAsync();
+    }
+
+    /// <summary>Bấm thẻ "Coi điểm của tôi".</summary>
+    private async void CardViewResults_Click(object sender, MouseButtonEventArgs e)
+    {
+        await OpenMyResultsAsync();
+    }
+
+    private async Task StartExamForCurrentCandidateAsync()
+    {
+        if (_loggedInCandidate == null)
+        {
+            MessageBox.Show("Phiên đăng nhập đã hết. Vui lòng đăng nhập lại.", "Thông báo",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            var exam = await _examManager.GetActiveExamAsync();
+            if (exam == null)
+            {
+                MessageBox.Show("Không tìm thấy đề thi hoạt động!", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var started = await _examManager.StartSessionAsync();
+
+            // Nạp lại danh sách kỹ năng đã nộp (khi tiếp tục ca cũ) để cảnh báo đúng.
+            _submittedSkills.Clear();
+            foreach (var s in started.SubmittedSkills) _submittedSkills.Add(s);
+            UpdateTabIndicators();
+
+            _remainingSeconds = Math.Max(1, exam.TotalDurationMinutes) * 60;
+            UpdateTimerText();
+
+            ViewCandidateHome.Visibility = Visibility.Collapsed;
+            ViewCandidateResults.Visibility = Visibility.Collapsed;
+            ViewLogin.Visibility = Visibility.Collapsed;
+            ViewTeacherDashboard.Visibility = Visibility.Collapsed;
+            ViewResult.Visibility = Visibility.Collapsed;
+            ViewAdminExams.Visibility = Visibility.Collapsed;
+            ViewExam.Visibility = Visibility.Visible;
+
+            BtnLogout.Visibility = Visibility.Visible;
+            BadgeKiosk.Visibility = Visibility.Visible;
+            BtnToggleKiosk.Visibility = Visibility.Visible;
+
+            try { _keyboardHook.Install(); }
+            catch { /* Không đủ quyền thì bỏ qua */ }
+
+            _examTimer.Start();
+            _autosaveTimer.Start();
+
+            // Nếu đang tiếp tục ca cũ: chuyển thẳng tới kỹ năng đầu tiên CHƯA nộp.
+            var submitted = started.SubmittedSkills;
+            var nextSkill = new[] { SkillType.Listening, SkillType.Reading, SkillType.Writing, SkillType.Speaking }
+                .FirstOrDefault(s => !submitted.Contains(s));
+
+            if (submitted.Count > 0 && nextSkill != default)
+            {
+                var submittedNames = string.Join(", ", submitted.Select(SkillName));
+                TxtProctoringAlert.Foreground = (SolidColorBrush)FindResource("AccentBlue");
+                TxtProctoringAlert.Text =
+                    $"● Tiếp tục ca thi trước. Đã nộp: {submittedNames}. Bạn còn {SkillName(nextSkill)} và các phần sau.";
+            }
+            else if (submitted.Count >= 4)
+            {
+                // Đã nộp đủ 4 -> ca mới.
+                TxtProctoringAlert.Foreground = (SolidColorBrush)FindResource("SuccessGreen");
+                TxtProctoringAlert.Text = "● Ca thi mới — bạn đã hoàn thành ca trước.";
+            }
+
+            // nextSkill == default khi đã nộp đủ 4 (ca mới) -> bắt đầu từ Listening.
+            await LoadSkillView(submitted.Count >= 4 ? SkillType.Listening : nextSkill);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không bắt đầu được ca thi:\n{ex.Message}", "Lỗi",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async Task OpenMyResultsAsync()
+    {
+        ViewCandidateHome.Visibility = Visibility.Collapsed;
+        ViewExam.Visibility = Visibility.Collapsed;
+        ViewResult.Visibility = Visibility.Collapsed;
+        ViewTeacherDashboard.Visibility = Visibility.Collapsed;
+        ViewAdminExams.Visibility = Visibility.Collapsed;
+        ViewCandidateResults.Visibility = Visibility.Visible;
+
+        InitMyResultFilters();
+        await RefreshMyResultsAsync();
+    }
+
+    private async Task RefreshMyResultsAsync()
+    {
+        try
+        {
+            var history = await _examManager.GetMyHistoryAsync();
+
+            // Áp bộ lọc phía client (danh sách nhỏ, không cần gọi lại DB).
+            IEnumerable<CandidateSessionHistoryDto> filtered = history;
+
+            string kw = TxtMyFilterKeyword.Text.Trim();
+            if (kw.Length > 0)
+                filtered = filtered.Where(h => h.ExamTitle.Contains(kw, StringComparison.OrdinalIgnoreCase));
+
+            // Trạng thái
+            int statusIdx = CboMyFilterStatus.SelectedIndex;
+            filtered = statusIdx switch
+            {
+                1 => filtered.Where(h => h.IsFullyApproved),                          // Đã có điểm
+                2 => filtered.Where(h => h.PendingReviewCount > 0),                   // Chờ chấm
+                3 => filtered.Where(h => !h.IsFullyApproved && h.PendingReviewCount == 0), // Chưa hoàn thành
+                _ => filtered
+            };
+
+            // Kỹ năng: chỉ ca có kỹ năng đó (đã nộp)
+            int skillIdx = CboMyFilterSkill.SelectedIndex;
+            filtered = skillIdx switch
+            {
+                1 => filtered.Where(h => h.ListeningBand.HasValue),
+                2 => filtered.Where(h => h.ReadingBand.HasValue),
+                3 => filtered.Where(h => h.WritingBand.HasValue),
+                4 => filtered.Where(h => h.SpeakingBand.HasValue),
+                _ => filtered
+            };
+
+            // Sắp xếp
+            filtered = CboMyFilterSort.SelectedIndex == 1
+                ? filtered.OrderBy(h => h.StartTime)
+                : filtered.OrderByDescending(h => h.StartTime);
+
+            var list = filtered.ToList();
+
+            _myResults = list.Select(h => new MyResultRow
+            {
+                SessionId = h.SessionId,
+                ExamTitle = h.ExamTitle,
+                StartTime = h.StartTime,
+                StatusText = h.StatusText,
+                IsFullyApproved = h.IsFullyApproved,
+                // Chỉ khi đủ 4 kỹ năng đã duyệt thì mới có điểm để xem
+                // (DTO đã ẩn toàn bộ band score nếu chưa đủ).
+                HasAnyApprovedSkill = h.IsFullyApproved,
+                TeacherFeedback = h.TeacherFeedback,
+                OverallScoreText = BuildOverallText(h),
+                SkillSummary = BuildSkillSummary(h)
+            }).ToList();
+
+            ListMyResults.ItemsSource = null;
+            ListMyResults.ItemsSource = _myResults;
+
+            TxtNoResults.Visibility = _myResults.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            TxtNoResults.Text = history.Count == 0
+                ? "Bạn chưa có ca thi nào. Hãy bấm “Vào phòng thi” để bắt đầu."
+                : "Không có ca thi nào khớp bộ lọc.";
+
+            TxtResultsSummary.Text = _myResults.Count == 0
+                ? "Không có kết quả"
+                : $"{_myResults.Count}/{history.Count} ca thi · {_myResults.Count(r => r.IsFullyApproved)} đã có điểm chính thức";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không tải được kết quả:\n{ex.Message}", "Lỗi",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>Khởi tạo các ComboBox lọc cho trang kết quả thí sinh.</summary>
+    private void InitMyResultFilters()
+    {
+        if (CboMyFilterStatus.Items.Count > 0) return;
+
+        CboMyFilterStatus.Items.Add("Tất cả trạng thái");
+        CboMyFilterStatus.Items.Add("Đã có điểm");
+        CboMyFilterStatus.Items.Add("Đang chờ chấm");
+        CboMyFilterStatus.Items.Add("Chưa hoàn thành");
+        CboMyFilterStatus.SelectedIndex = 0;
+
+        CboMyFilterSkill.Items.Add("Tất cả kỹ năng");
+        CboMyFilterSkill.Items.Add("Listening");
+        CboMyFilterSkill.Items.Add("Reading");
+        CboMyFilterSkill.Items.Add("Writing");
+        CboMyFilterSkill.Items.Add("Speaking");
+        CboMyFilterSkill.SelectedIndex = 0;
+
+        CboMyFilterSort.Items.Add("Mới nhất trước");
+        CboMyFilterSort.Items.Add("Cũ nhất trước");
+        CboMyFilterSort.SelectedIndex = 0;
+    }
+
+    private async void MyFilter_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        if (ViewCandidateResults.Visibility != Visibility.Visible) return;
+        await RefreshMyResultsAsync();
+    }
+
+    private async void BtnApplyMyFilter_Click(object sender, RoutedEventArgs e)
+        => await RefreshMyResultsAsync();
+
+    private static string BuildSkillSummary(CandidateSessionHistoryDto h)
+    {
+        // Chỉ hiện điểm từng kỹ năng khi giảng viên đã duyệt xong toàn bộ.
+        if (!h.IsFullyApproved)
+            return $"{h.SubmittedSkills}/4 kỹ năng đã nộp";
+
+        string Fmt(double? band) => band.HasValue ? $"{band.Value:0.0}" : "—";
+        return $"L {Fmt(h.ListeningBand)} · R {Fmt(h.ReadingBand)} · W {Fmt(h.WritingBand)} · S {Fmt(h.SpeakingBand)}";
+    }
+
+    private static string SkillName(SkillType skill) => skill switch
+    {
+        SkillType.Listening => "Listening",
+        SkillType.Reading => "Reading",
+        SkillType.Writing => "Writing",
+        SkillType.Speaking => "Speaking",
+        _ => skill.ToString()
+    };
+
+    /// <summary>
+    /// Chữ hiển thị ở cột điểm phải.
+    /// Thí sinh KHÔNG thấy điểm cho đến khi giảng viên duyệt xong toàn bộ 4 kỹ năng.
+    /// </summary>
+    private static string BuildOverallText(CandidateSessionHistoryDto h)
+    {
+        // Chỉ hiện điểm khi đã đủ 4 kỹ năng VÀ tất cả đã được duyệt.
+        if (h.OverallBand.HasValue)
+            return $"Band {h.OverallBand:0.0}";
+
+        if (h.PendingReviewCount > 0)
+            return "Chờ giảng viên chấm";
+
+        return h.SubmittedSkills < 4 ? "Chưa đủ 4 kỹ năng" : "Chờ công bố";
+    }
+
+    private async void BtnRefreshMyResults_Click(object sender, RoutedEventArgs e)
+        => await RefreshMyResultsAsync();
+
+    private void BtnBackFromResults_Click(object sender, RoutedEventArgs e)
+    {
+        ViewCandidateResults.Visibility = Visibility.Collapsed;
+        ViewCandidateHome.Visibility = Visibility.Visible;
+    }
+
+    private void ListMyResults_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ListMyResults.SelectedItem is not MyResultRow row) return;
+
+        // CHỈ mở báo cáo khi giảng viên đã duyệt xong CẢ 4 KỸ NĂNG.
+        // (Trước đây duyệt 1 kỹ năng là mở được -> thí sinh thấy điểm lẻ.)
+        if (!row.IsFullyApproved)
+        {
+            MessageBox.Show(
+                "Bài thi chưa được công bố điểm.\n\n" +
+                "Điểm chỉ hiển thị sau khi giảng viên chấm và xác nhận đủ 4 kỹ năng.",
+                "Chưa có điểm",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        _ = ShowHistorySessionReportAsync(row.SessionId);
+    }
+
+    private async Task ShowHistorySessionReportAsync(Guid sessionId)
+    {
+        try
+        {
+            var summary = await _examManager.GetSessionByIdAsync(sessionId);
+            if (summary == null) return;
+
+            // Overall CHỈ có khi đủ 4 kỹ năng đã duyệt.
+            // Chưa đủ thì hiện "--" thay vì đoán điểm — thí sinh không được thấy điểm lẻ.
+            TxtOverallBand.Text = summary.OverallBandScore.HasValue
+                ? summary.OverallBandScore.Value.ToString("0.0")
+                : "--";
+
+            TxtScoreListening.Text = FormatSkillLine("Listening", summary.ListeningBand, summary);
+            TxtScoreReading.Text = FormatSkillLine("Reading", summary.ReadingBand, summary);
+            TxtScoreWriting.Text = FormatSkillLine("Writing", summary.WritingBand, summary);
+            TxtScoreSpeaking.Text = FormatSkillLine("Speaking", summary.SpeakingBand, summary);
+
+            TxtDiagnosticFeedback.Text = summary.StatusMessage;
+            TxtModelAnswer.Text = string.Empty;
+            TxtAdaptiveQuestion.Text = string.Empty;
+
+            // Nhận xét chính thức của giảng viên cho từng kỹ năng đã duyệt.
+            var approvedReports = summary.Submissions
+                .SelectMany(s => s.Reports.Select(r => new { s.SkillType, Report = r }))
+                .Where(x => x.Report.IsApproved && !string.IsNullOrWhiteSpace(x.Report.TeacherFeedback))
+                .Select(x => $"[{x.SkillType}] {x.Report.TeacherFeedback}")
+                .ToList();
+
+            if (approvedReports.Count > 0)
+                TxtDiagnosticFeedback.Text = summary.StatusMessage + "\n\n" +
+                    string.Join("\n\n", approvedReports.Select(t => $"• {t}"));
+
+            ViewCandidateResults.Visibility = Visibility.Collapsed;
+            ViewResult.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không mở được báo cáo:\n{ex.Message}", "Lỗi",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async Task LoadSkillView(SkillType skill)
     {
         _currentSkill = skill;
         _answerGetters.Clear();
@@ -468,41 +820,163 @@ public partial class MainWindow : Window
         {
             if (Enum.TryParse<SkillType>(tag, out var skill))
             {
-                LoadSkillView(skill);
+                _ = SwitchSkillWithGuardAsync(skill);
             }
         }
     }
 
-    private async void BtnSubmitCurrentSkill_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Chuyển kỹ năng có kiểm tra: nếu kỹ năng hiện tại có nội dung CHƯA nộp,
+    /// hỏi người dùng trước khi rời (nếu không, đáp án sẽ bị xoá khi render lại).
+    /// </summary>
+    private async Task SwitchSkillWithGuardAsync(SkillType target)
+    {
+        if (target == _currentSkill)
+        {
+            await LoadSkillView(target);
+            return;
+        }
+
+        // Đã nộp rồi -> chuyển tự do.
+        if (_submittedSkills.Contains(_currentSkill))
+        {
+            await LoadSkillView(target);
+            return;
+        }
+
+        // Chưa nộp nhưng có nội dung -> hỏi.
+        bool hasContent = HasUnsubmittedContent();
+        if (!hasContent)
+        {
+            await LoadSkillView(target);
+            return;
+        }
+
+        var choice = MessageBox.Show(
+            $"Phần {SkillName(_currentSkill)} đang có nội dung bạn đã điền nhưng CHƯA nộp.\n\n" +
+            "Nếu chuyển sang phần khác, nội dung này sẽ bị mất.\n\n" +
+            "Bạn có muốn NỘP phần này trước khi chuyển?",
+            "Chưa nộp bài",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Warning);
+
+        if (choice == MessageBoxResult.Cancel) return;
+
+        if (choice == MessageBoxResult.Yes)
+        {
+            bool submitted = await SubmitCurrentSkillInternalAsync();
+            if (!submitted) return; // nộp lỗi -> ở lại
+        }
+
+        await LoadSkillView(target);
+    }
+
+    /// <summary>Có nội dung đã điền ở kỹ năng hiện tại nhưng chưa nộp?</summary>
+    private bool HasUnsubmittedContent()
+    {
+        if (_currentSkill == SkillType.Writing)
+            return !string.IsNullOrWhiteSpace(TxtEssayEditor.Text);
+
+        if (_currentSkill == SkillType.Speaking)
+            return _speakingTurns.Count > 0 || !string.IsNullOrWhiteSpace(TxtSpeakingTranscript.Text);
+
+        return _answerGetters.Any(kv => !string.IsNullOrWhiteSpace(kv.Value()));
+    }
+
+    /// <summary>
+    /// Nộp kỹ năng hiện tại. Trả về true nếu thành công.
+    /// Tách riêng để cả nút Submit và luồng chuyển tab đều dùng chung.
+    /// </summary>
+    private async Task<bool> SubmitCurrentSkillInternalAsync()
     {
         if (_examManager.CurrentSession == null)
         {
             MessageBox.Show("Chưa có ca thi đang hoạt động. Vui lòng đăng nhập lại.", "Thông báo", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            return false;
         }
 
-        var answers = _answerGetters.ToDictionary(k => k.Key, v => v.Value());
-        string? essay = _currentSkill == SkillType.Writing ? TxtEssayEditor.Text : null;
-        string? audio = _currentSkill == SkillType.Speaking ? "speaking_candidate.wav" : null;
+        // ---------------------------------------------------------------------
+        // CHẶN BẤM NHIỀU LẦN: trước đây bấm nhanh 3 lần tạo 3 bản nộp trùng.
+        // Disable nút + hiện trạng thái rõ ràng trong lúc chờ.
+        // ---------------------------------------------------------------------
+        if (_isSubmitting) return false;
+        _isSubmitting = true;
 
-        TxtActionStatus.Text = $"Đang chấm điểm kỹ năng {_currentSkill} qua bộ máy Grader Strategy...";
+        var previousStatus = TxtActionStatus.Text;
+        SetSubmittingState(true, "Đang nộp bài...");
 
         try
         {
-            var result = await _examManager.SubmitSkillAsync(_currentSkill, answers, essay, audio);
+            // Speaking có luồng riêng.
+            if (_currentSkill == SkillType.Speaking)
+            {
+                await FinalizeSpeakingAsync();
+                return _submittedSkills.Contains(SkillType.Speaking);
+            }
 
-            string rawLine = result.TotalQuestions > 0
-                ? $"\nSố câu đúng: {result.RawScore:0}/{result.TotalQuestions}"
-                : string.Empty;
+            var answers = _answerGetters.ToDictionary(k => k.Key, v => v.Value());
+            string? essay = _currentSkill == SkillType.Writing ? TxtEssayEditor.Text : null;
 
-            MessageBox.Show($"Chấm điểm hoàn tất!\nKỹ năng: {_currentSkill}{rawLine}\nĐiểm Band: {result.BandScore:0.0}\nNhận xét: {result.FeedbackComments}",
-                "Kết quả chấm điểm", MessageBoxButton.OK, MessageBoxImage.Information);
+            // Nộp xong mới thông báo. Trong lúc chờ chỉ hiện "Đang nộp bài..." trên thanh trạng thái,
+            // KHÔNG hiện popup "đang chấm điểm" gây hiểu nhầm.
+            var result = await _examManager.SubmitSkillAsync(_currentSkill, answers, essay, null);
+
+            _submittedSkills.Add(_currentSkill);
+            UpdateTabIndicators();
+
+            string message =
+                $"Đã nộp bài thành công!\n\n" +
+                $"Kỹ năng: {SkillName(_currentSkill)}\n\n" +
+                "Bài làm đã được ghi nhận. Điểm sẽ chỉ hiển thị sau khi giảng viên " +
+                "chấm và xác nhận cho toàn bộ bài thi.";
+
+            MessageBox.Show(message, "Nộp bài thành công", MessageBoxButton.OK, MessageBoxImage.Information);
+            return true;
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Không thể chấm điểm kỹ năng {_currentSkill}:\n{ex.Message}", "Lỗi chấm điểm", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            MessageBox.Show($"Không nộp được bài {SkillName(_currentSkill)}:\n{ex.Message}", "Lỗi nộp bài", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
         }
+        finally
+        {
+            _isSubmitting = false;
+            SetSubmittingState(false, previousStatus);
+        }
+    }
+
+    /// <summary>Khoá/mở các nút nộp trong lúc đang gửi lên server.</summary>
+    private void SetSubmittingState(bool submitting, string statusText)
+    {
+        BtnSubmitCurrentSkill.IsEnabled = !submitting;
+        BtnSubmitTurn.IsEnabled = !submitting;
+        BtnFinalizeSpeaking.IsEnabled = !submitting;
+        BtnPlayAudio.IsEnabled = !submitting;
+
+        TxtActionStatus.Text = statusText;
+        TxtActionStatus.Foreground = (SolidColorBrush)FindResource(
+            submitting ? "AccentBlue" : "TextMuted");
+    }
+
+    /// <summary>Hiện dấu ✓ trên tab đã nộp để thí sinh biết còn phần nào.</summary>
+    private void UpdateTabIndicators()
+    {
+        // Dung escape Unicode de tranh loi encoding khi file bi luu lai boi cong cu khac.
+        const string Check = "\u2713 ";   // dau check
+        const string Dot = " \u00B7 ";    // dau cham giua
+
+        string Mark(SkillType s, string label) => _submittedSkills.Contains(s) ? Check + label : label;
+
+        TabListening.Content = Mark(SkillType.Listening, "1. Listening" + Dot + "30m");
+        TabReading.Content = Mark(SkillType.Reading, "2. Reading" + Dot + "60m");
+        TabWriting.Content = Mark(SkillType.Writing, "3. Writing" + Dot + "60m");
+        TabSpeaking.Content = Mark(SkillType.Speaking, "4. Speaking" + Dot + "15m");
+    }
+
+    private async void BtnSubmitCurrentSkill_Click(object sender, RoutedEventArgs e)
+    {
+        bool ok = await SubmitCurrentSkillInternalAsync();
+        if (!ok) return;
 
         if (_currentSkill == SkillType.Speaking)
         {
@@ -518,8 +992,9 @@ public partial class MainWindow : Window
             _ => SkillType.Listening
         };
 
-        LoadSkillView(nextSkill);
+        await LoadSkillView(nextSkill);
     }
+
 
     private async void BtnSubmitSpeaking_Click(object sender, RoutedEventArgs e)
     {
@@ -740,8 +1215,11 @@ public partial class MainWindow : Window
             ? "Hãy trả lời bằng tiếng Anh, càng chi tiết càng tốt."
             : _currentHints;
 
-        TxtSpeakingProgress.Text = $"Lượt đã trả lời: {_speakingTurns.Count}";
-        BarSpeakingProgress.Value = Math.Min(_speakingTurns.Count, BarSpeakingProgress.Maximum);
+        int total = SmartIELTS.Application.Speaking.SpeakingInterviewScript.TotalSteps;
+        int done = _speakingTurns.Count;
+        TxtSpeakingProgress.Text = $"Lượt {Math.Min(done + 1, total)} / {total}";
+        BarSpeakingProgress.Maximum = total;
+        BarSpeakingProgress.Value = Math.Min(done, total);
 
         BtnSkipPreparation.Visibility = _isPreparationPhase ? Visibility.Visible : Visibility.Collapsed;
         TxtSpeakingState.Text = _isPreparationPhase
@@ -912,47 +1390,19 @@ public partial class MainWindow : Window
         _ => 90
     };
 
+    /// <summary>
+    /// Sau mỗi lượt trả lời: chỉ xác nhận đã ghi nhận, KHÔNG hiện điểm AI.
+    /// Điểm chính thức do giảng viên chốt sau khi duyệt.
+    /// </summary>
     private void ShowTurnFeedback(SpeakingTurnResultDto result)
     {
         CardTurnFeedback.Visibility = Visibility.Visible;
-        TxtTurnBand.Text = $"Band {result.TurnBand:0.0}";
-        TxtTurnFeedback.Text = $"{result.TurnFeedback}\n({result.WordCount} từ — {result.LengthAssessment})";
-        TxtTurnCriteria.Text =
-            $"Fluency: {result.FluencyCoherence:0.0}  •  Pronunciation: {result.Pronunciation:0.0}  •  " +
-            $"Lexical: {result.LexicalResource:0.0}  •  Grammar: {result.GrammaticalRangeAccuracy:0.0}";
-
-        // Hiển thị lỗi/cảnh báo có màu
-        var items = new List<TextBlock>();
-        foreach (var h in result.Highlights.Take(4))
-        {
-            var brush = h.SeverityColor switch
-            {
-                "Red" => (SolidColorBrush)FindResource("DangerRed"),
-                "Yellow" => (SolidColorBrush)FindResource("WarningYellow"),
-                _ => (SolidColorBrush)FindResource("SuccessGreen")
-            };
-
-            items.Add(new TextBlock
-            {
-                Text = $"• [{h.ErrorType}] \"{h.OriginalText}\" → {h.Suggestion}",
-                Foreground = brush,
-                FontSize = 11,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 2, 0, 0)
-            });
-        }
-
-        if (items.Count == 0)
-        {
-            items.Add(new TextBlock
-            {
-                Text = "• Không phát hiện lỗi ngữ pháp rõ ràng.",
-                Foreground = (SolidColorBrush)FindResource("SuccessGreen"),
-                FontSize = 11
-            });
-        }
-
-        ListTurnHighlights.ItemsSource = items;
+        TxtTurnBand.Text = "Đã ghi nhận";
+        TxtTurnFeedback.Text =
+            $"Đã ghi nhận câu trả lời ({result.WordCount} từ).\n" +
+            "Giảng viên sẽ nghe lại bản ghi âm và chấm điểm chính thức sau khi bạn kết thúc bài vấn đáp.";
+        TxtTurnCriteria.Text = string.Empty;
+        ListTurnHighlights.ItemsSource = null;
     }
 
     private void UpdateSpeakingHistory()
@@ -965,10 +1415,9 @@ public partial class MainWindow : Window
         }).ToList();
 
         int totalWords = _speakingTurns.Sum(t => t.Answer.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
-        double avgBand = _speakingTurns.Count > 0 ? _examManager.LastTurnBand : 0;
 
-        TxtSpeakingStats.Text = $"{_speakingTurns.Count} lượt • {totalWords} từ" +
-            (avgBand > 0 ? $" • Band gần nhất {avgBand:0.0}" : string.Empty);
+        // Không hiển thị điểm AI — điểm chính thức do giảng viên chốt.
+        TxtSpeakingStats.Text = $"{_speakingTurns.Count} lượt • {totalWords} từ";
     }
 
     private static string DescribePartShort(SpeakingPart part) => part switch
@@ -994,8 +1443,8 @@ public partial class MainWindow : Window
         }
 
         var confirm = MessageBox.Show(
-            $"Chốt điểm Speaking với {_speakingTurns.Count} câu trả lời?\nSau khi chốt, bài nộp không thể sửa.",
-            "Xác nhận chốt điểm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            $"Nộp bài vấn đáp với {_speakingTurns.Count} câu trả lời?\nSau khi nộp, bài làm không thể sửa.",
+            "Xác nhận nộp bài", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (confirm != MessageBoxResult.Yes) return;
 
@@ -1003,17 +1452,18 @@ public partial class MainWindow : Window
         if (_speech.IsListening) _speech.Stop();
         if (_recorder.IsRecording) { _recorder.Stop(); UpdateRecordingUi(stopped: true); }
 
-        TxtActionStatus.Text = "Đang chấm điểm toàn bộ buổi vấn đáp...";
+        TxtActionStatus.Text = "Đang nộp bài vấn đáp...";
 
         try
         {
             var result = await _examManager.FinalizeSpeakingAsync(_speakingTurns, _recorder.LastRelativePath);
 
+            _submittedSkills.Add(SkillType.Speaking);
+            UpdateTabIndicators();
+
             MessageBox.Show(
-                $"✅ Đã chốt điểm Speaking!\n\nBand: {result.BandScore:0.0}\n" +
-                $"Fluency: {result.CriterionScore1:0.0} • Pronunciation: {result.CriterionScore2:0.0}\n" +
-                $"Lexical: {result.CriterionScore3:0.0} • Grammar: {result.CriterionScore4:0.0}\n" +
-                $"Số lượt: {_speakingTurns.Count}\n\nKết quả đang chờ giảng viên duyệt.",
+                $"✅ Đã nộp bài vấn đáp!\n\nSố lượt trả lời: {_speakingTurns.Count}\n\n" +
+                $"{result.StatusMessage}",
                 "Hoàn tất Speaking", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
@@ -1087,58 +1537,56 @@ public partial class MainWindow : Window
 
         var summary = await _examManager.GetSessionSummaryAsync();
 
-        // Hiển thị đúng số liệu thực tế, không "làm đẹp" bằng giá trị mặc định.
+        // ---------------------------------------------------------------------
+        // QUY TẮC: thí sinh chỉ thấy điểm đã được giảng viên duyệt.
+        // DTO đã lọc sẵn dữ liệu AI; ở đây chỉ cần hiển thị trung thực.
+        // ---------------------------------------------------------------------
+
         TxtOverallBand.Text = summary.OverallBandScore.HasValue
             ? summary.OverallBandScore.Value.ToString("0.0")
             : "--";
 
-        TxtScoreListening.Text = FormatSkillLine("🎧 Listening", summary.ListeningBand, "Dung sai hoa/thường, biến thể Anh - Mỹ");
-        TxtScoreReading.Text = FormatSkillLine("📖 Reading", summary.ReadingBand, "Khớp đáp án chính xác");
-        TxtScoreWriting.Text = FormatSkillLine("✍️ Writing", summary.WritingBand, "4 tiêu chí Cambridge");
-        TxtScoreSpeaking.Text = FormatSkillLine("🎙️ Speaking", summary.SpeakingBand, "4 tiêu chí Cambridge");
+        TxtScoreListening.Text = FormatSkillLine("Listening", summary.ListeningBand, summary);
+        TxtScoreReading.Text = FormatSkillLine("Reading", summary.ReadingBand, summary);
+        TxtScoreWriting.Text = FormatSkillLine("Writing", summary.WritingBand, summary);
+        TxtScoreSpeaking.Text = FormatSkillLine("Speaking", summary.SpeakingBand, summary);
 
-        if (summary.Submissions.Count < 4)
+        // Thông điệp trạng thái duyệt
+        TxtDiagnosticFeedback.Text = summary.StatusMessage;
+
+        // Bài mẫu / câu hỏi phản biện / nhận xét AI: KHÔNG hiển thị cho thí sinh.
+        TxtModelAnswer.Text = string.Empty;
+        TxtAdaptiveQuestion.Text = string.Empty;
+
+        // Chỉ hiện nhận xét chính thức của giảng viên (nếu đã duyệt).
+        var approvedReports = summary.Submissions
+            .SelectMany(s => s.Reports)
+            .Where(r => r.IsApproved && !string.IsNullOrWhiteSpace(r.TeacherFeedback))
+            .ToList();
+
+        if (approvedReports.Count > 0)
         {
-            TxtDiagnosticFeedback.Text = "Bạn chưa hoàn thành đủ 4 kỹ năng nên Overall Band chưa được chốt. Hãy làm nốt các phần còn lại.";
-        }
-
-        var writingReport = summary.Submissions
-            .FirstOrDefault(s => s.SkillType == SkillType.Writing)?.Reports.FirstOrDefault();
-
-        if (writingReport != null)
-        {
-            TxtDiagnosticFeedback.Text = writingReport.FeedbackComments;
-
-            try
-            {
-                using var doc = JsonDocument.Parse(writingReport.DetailedJsonAnalysis);
-                if (doc.RootElement.TryGetProperty("ModelAnswerBand8", out var modelAns))
-                {
-                    TxtModelAnswer.Text = modelAns.GetString() ?? string.Empty;
-                }
-            }
-            catch (JsonException) { /* Dữ liệu cũ không phải JSON hợp lệ */ }
-        }
-
-        var speakingReport = summary.Submissions
-            .FirstOrDefault(s => s.SkillType == SkillType.Speaking)?.Reports.FirstOrDefault();
-
-        if (speakingReport != null)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(speakingReport.DetailedJsonAnalysis);
-                if (doc.RootElement.TryGetProperty("AdaptiveFollowUpQuestion", out var followUp))
-                {
-                    TxtAdaptiveQuestion.Text = followUp.GetString() ?? string.Empty;
-                }
-            }
-            catch (JsonException) { /* Dữ liệu cũ không phải JSON hợp lệ */ }
+            TxtDiagnosticFeedback.Text = summary.StatusMessage + "\n\n" +
+                string.Join("\n\n", approvedReports.Select(r => $"• {r.TeacherFeedback}"));
         }
     }
 
-    private static string FormatSkillLine(string label, double? band, string note)
-        => band.HasValue ? $"{label}: Band {band.Value:0.0} ({note})" : $"{label}: Chưa hoàn thành";
+    /// <summary>
+    /// Một dòng kỹ năng trên màn hình kết quả.
+    /// Thí sinh chỉ thấy điểm khi kỹ năng đó đã được giảng viên duyệt.
+    /// </summary>
+    private static string FormatSkillLine(string label, double? band, SessionResultDto summary)
+    {
+        if (band.HasValue)
+            return $"{label}: Band {band.Value:0.0}";
+
+        bool pending = summary.Submissions.Any(s =>
+            s.IsPendingReview && s.SkillType.ToString() == label);
+
+        return pending
+            ? $"{label}: Đang chờ giảng viên chấm"
+            : $"{label}: Chưa hoàn thành";
+    }
 
     private void TxtEssayEditor_TextChanged(object sender, TextChangedEventArgs e)
     {
@@ -1275,10 +1723,19 @@ public partial class MainWindow : Window
         }
     }
 
-    private void BtnRestart_Click(object sender, RoutedEventArgs e)
+    /// <summary>Sau khi xem báo cáo: quay lại màn chọn chức năng (không bắt đăng nhập lại).</summary>
+    private async void BtnRestart_Click(object sender, RoutedEventArgs e)
     {
         ViewResult.Visibility = Visibility.Collapsed;
-        ViewLogin.Visibility = Visibility.Visible;
+
+        if (_loggedInCandidate != null)
+        {
+            await ShowCandidateHomeAsync(_loggedInCandidate);
+        }
+        else
+        {
+            ViewLogin.Visibility = Visibility.Visible;
+        }
     }
 
     private void UpdateTimerText()
@@ -1303,13 +1760,61 @@ public partial class MainWindow : Window
         {
             _examTimer.Stop();
             _autosaveTimer.Stop();
-            MessageBox.Show("Đã hết thời gian làm bài. Hệ thống tự động nộp bài của bạn.",
+            _keyboardHook.IsEnabled = false;
+
+            MessageBox.Show(
+                "Đã hết thời gian làm bài.\nHệ thống sẽ tự động nộp phần thi đang làm dở.",
                 "Hết giờ", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+            await AutoSubmitOnTimeoutAsync();
             await ShowFinalReportAsync();
             return;
         }
 
         UpdateTimerText();
+    }
+
+    /// <summary>
+    /// Hết giờ: nộp thật phần đang làm (trước đây chỉ hiện thông báo rồi thôi,
+    /// khiến bài làm bị mất và ca thi kẹt InProgress).
+    /// </summary>
+    private async Task AutoSubmitOnTimeoutAsync()
+    {
+        if (_examManager.CurrentSession == null) return;
+
+        // Speaking có luồng riêng: chỉ chốt nếu đã có câu trả lời.
+        if (_currentSkill == SkillType.Speaking)
+        {
+            if (_speakingTurns.Count > 0)
+            {
+                try
+                {
+                    await _examManager.FinalizeSpeakingAsync(_speakingTurns, _recorder.LastRelativePath);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SmartIELTS] Không chốt được Speaking khi hết giờ: {ex.Message}");
+                }
+            }
+            return;
+        }
+
+        var answers = _answerGetters.ToDictionary(k => k.Key, v => v.Value());
+        bool hasAnswers = answers.Values.Any(v => !string.IsNullOrWhiteSpace(v));
+        string? essay = _currentSkill == SkillType.Writing ? TxtEssayEditor.Text : null;
+
+        if (_currentSkill == SkillType.Writing && string.IsNullOrWhiteSpace(essay)) return;
+        if (_currentSkill is SkillType.Listening or SkillType.Reading && !hasAnswers) return;
+
+        try
+        {
+            await _examManager.SubmitSkillAsync(_currentSkill, answers, essay, null);
+            Console.WriteLine($"[SmartIELTS] Đã tự động nộp {_currentSkill} khi hết giờ.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SmartIELTS] Không tự nộp được {_currentSkill}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -1445,7 +1950,12 @@ public partial class MainWindow : Window
         ViewExam.Visibility = Visibility.Collapsed;
         ViewResult.Visibility = Visibility.Collapsed;
         ViewAdminExams.Visibility = Visibility.Collapsed;
+        ViewCandidateHome.Visibility = Visibility.Collapsed;
+        ViewCandidateResults.Visibility = Visibility.Collapsed;
         ViewLogin.Visibility = Visibility.Visible;
+
+        _loggedInCandidate = null;
+        _myResults.Clear();
 
         TxtCandidateBadge.Text = "Chưa đăng nhập";
         _remainingSeconds = 165 * 60;
@@ -1458,7 +1968,7 @@ public partial class MainWindow : Window
         TxtProctoringAlert.Foreground = (SolidColorBrush)FindResource("SuccessGreen");
     }
 
-    private async void OpenTeacherDashboard(User user)
+    private async void OpenTeacherDashboard(User user, string password)
     {
         _isTeacherDashboardOpen = true;
         ViewLogin.Visibility = Visibility.Collapsed;
@@ -1476,8 +1986,10 @@ public partial class MainWindow : Window
         TxtProctoringAlert.Text = "● Đang kết nối trung tâm Giám sát phòng thi & Bàn duyệt điểm.";
         TxtProctoringAlert.Foreground = (SolidColorBrush)FindResource("AccentBlue");
 
-        // Kết nối realtime: nếu API không chạy thì vẫn dùng cảnh báo cục bộ.
-        await _realtime.TryConnectAsync(_examManager.ApiBaseUrl);
+        // Kết nối realtime: cần JWT vì hub yêu cầu role Teacher/Admin.
+        // Nếu API không chạy thì vẫn dùng cảnh báo cục bộ (offline-first).
+        string? apiToken = await _examManager.TryGetApiTokenAsync(user.Username, password);
+        await _realtime.TryConnectAsync(_examManager.ApiBaseUrl, apiToken);
         TxtRealtimeStatus.Text = _realtime.StatusText;
 
         // Tab Quản trị đề thi chỉ dành cho Admin.
@@ -1497,21 +2009,187 @@ public partial class MainWindow : Window
 
             BtnDashTabProctoring.Background = tab == "Proctoring" ? active : inactive;
             BtnDashTabGrading.Background = tab == "Grading" ? active : inactive;
+            BtnDashTabHistory.Background = tab == "History" ? active : inactive;
             BtnDashTabExams.Background = tab == "Exams" ? active : inactive;
 
             BtnDashTabProctoring.Foreground = tab == "Proctoring" ? activeText : inactiveText;
             BtnDashTabGrading.Foreground = tab == "Grading" ? activeText : inactiveText;
+            BtnDashTabHistory.Foreground = tab == "History" ? activeText : inactiveText;
             BtnDashTabExams.Foreground = tab == "Exams" ? activeText : inactiveText;
 
             PanelDashProctoring.Visibility = tab == "Proctoring" ? Visibility.Visible : Visibility.Collapsed;
             PanelDashGrading.Visibility = tab == "Grading" ? Visibility.Visible : Visibility.Collapsed;
+            PanelDashHistory.Visibility = tab == "History" ? Visibility.Visible : Visibility.Collapsed;
 
-            // Tab quản trị đề thi mở một màn hình riêng (không nằm trong dashboard).
+            // Tab quản trị đề thi mở một màn hình riêng.
             ViewAdminExams.Visibility = tab == "Exams" ? Visibility.Visible : Visibility.Collapsed;
             ViewTeacherDashboard.Visibility = tab == "Exams" ? Visibility.Collapsed : Visibility.Visible;
 
             if (tab == "Exams") _ = RefreshAdminExamsAsync();
+            if (tab == "History") _ = RefreshGradedHistoryAsync();
         }
+    }
+
+    // =====================================================================
+    // LỊCH SỬ ĐÃ CHẤM (giảng viên)
+    // =====================================================================
+
+    private List<GradedHistoryRow> _gradedHistory = new();
+
+    public class GradedHistoryRow
+    {
+        public Guid ReportId { get; set; }
+        public string CandidateName { get; set; } = string.Empty;
+        public string Username { get; set; } = string.Empty;
+        public string SkillText { get; set; } = string.Empty;
+        public string AiProposedText { get; set; } = string.Empty;
+        public string OfficialText { get; set; } = string.Empty;
+        public string ApprovedBy { get; set; } = string.Empty;
+        public string TeacherFeedback { get; set; } = string.Empty;
+        public string ApprovedDateText { get; set; } = string.Empty;
+        public DateTime? ApprovedAt { get; set; }
+
+        // Dùng để nạp lại form khi cần sửa điểm.
+        public double Criterion1 { get; set; }
+        public double Criterion2 { get; set; }
+        public double Criterion3 { get; set; }
+        public double Criterion4 { get; set; }
+        public string AiFeedback { get; set; } = string.Empty;
+        public string EssayContent { get; set; } = string.Empty;
+        public DateTime SubmittedAt { get; set; }
+    }
+
+    private void InitHistoryFilters()
+    {
+        if (CboHistorySkill.Items.Count > 0) return;
+
+        CboHistorySkill.Items.Add("Tất cả kỹ năng");
+        CboHistorySkill.Items.Add("Writing");
+        CboHistorySkill.Items.Add("Speaking");
+        CboHistorySkill.SelectedIndex = 0;
+
+        CboHistoryPeriod.Items.Add("Tất cả thời gian");
+        CboHistoryPeriod.Items.Add("Hôm nay");
+        CboHistoryPeriod.Items.Add("7 ngày gần đây");
+        CboHistoryPeriod.Items.Add("30 ngày gần đây");
+        CboHistoryPeriod.SelectedIndex = 0;
+
+        CboHistorySort.Items.Add("Mới nhất trước");
+        CboHistorySort.Items.Add("Cũ nhất trước");
+        CboHistorySort.SelectedIndex = 0;
+    }
+
+    private HistoryFilterDto BuildHistoryFilter()
+    {
+        var filter = new HistoryFilterDto
+        {
+            Keyword = TxtHistoryKeyword.Text.Trim(),
+            SortBy = CboHistorySort.SelectedIndex == 1 ? "oldest" : "newest",
+            Take = 300
+        };
+
+        filter.SkillType = CboHistorySkill.SelectedIndex switch
+        {
+            1 => SkillType.Writing,
+            2 => SkillType.Speaking,
+            _ => null
+        };
+
+        filter.FromDate = CboHistoryPeriod.SelectedIndex switch
+        {
+            1 => DateTime.Today,
+            2 => DateTime.Today.AddDays(-7),
+            3 => DateTime.Today.AddDays(-30),
+            _ => null
+        };
+
+        return filter;
+    }
+
+    private async Task RefreshGradedHistoryAsync()
+    {
+        InitHistoryFilters();
+
+        try
+        {
+            var rows = await _examManager.GetGradedHistoryAsync(BuildHistoryFilter());
+
+            _gradedHistory = rows.Select(r => new GradedHistoryRow
+            {
+                ReportId = r.ReportId,
+                CandidateName = r.CandidateName,
+                Username = r.Username,
+                SkillText = r.SkillType.ToString(),
+                AiProposedText = r.AiProposedBand.HasValue ? $"Band {r.AiProposedBand:0.0}" : "—",
+                OfficialText = $"Band {r.OfficialBand:0.0}",
+                ApprovedBy = r.ApprovedBy ?? "—",
+                TeacherFeedback = string.IsNullOrWhiteSpace(r.TeacherFeedback) ? "(không có)" : r.TeacherFeedback,
+                AiFeedback = r.AiFeedback,
+                EssayContent = r.EssayContent,
+                SubmittedAt = r.SubmittedAt,
+                Criterion1 = r.Criterion1 ?? 0,
+                Criterion2 = r.Criterion2 ?? 0,
+                Criterion3 = r.Criterion3 ?? 0,
+                Criterion4 = r.Criterion4 ?? 0,
+                ApprovedAt = r.ApprovedAt,
+                ApprovedDateText = r.ApprovedAt.HasValue
+                    ? r.ApprovedAt.Value.ToLocalTime().ToString("HH:mm dd/MM/yyyy")
+                    : "—"
+            }).ToList();
+
+            ListGradedHistory.ItemsSource = null;
+            ListGradedHistory.ItemsSource = _gradedHistory;
+
+            TxtNoHistory.Visibility = _gradedHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            TxtHistorySummary.Text = _gradedHistory.Count == 0
+                ? "Chưa có bài nào"
+                : $"{_gradedHistory.Count} bài đã chấm";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Không tải được lịch sử:\n{ex.Message}", "Lỗi",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void HistoryFilter_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        if (PanelDashHistory.Visibility != Visibility.Visible) return;
+        await RefreshGradedHistoryAsync();
+    }
+
+    private async void BtnApplyHistoryFilter_Click(object sender, RoutedEventArgs e)
+        => await RefreshGradedHistoryAsync();
+
+    private void ListGradedHistory_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ListGradedHistory.SelectedItem is not GradedHistoryRow row) return;
+
+        // Nạp bài đã chấm vào form duyệt điểm để giảng viên có thể SỬA ĐIỂM.
+        var review = new PendingReviewItemDto
+        {
+            ReportId = row.ReportId,
+            CandidateName = row.CandidateName,
+            SkillType = Enum.TryParse<SkillType>(row.SkillText, out var sk) ? sk : SkillType.Writing,
+            ProposedBand = ParseBand(row.AiProposedText),
+            Criterion1 = row.Criterion1,
+            Criterion2 = row.Criterion2,
+            Criterion3 = row.Criterion3,
+            Criterion4 = row.Criterion4,
+            AiFeedback = row.AiFeedback,
+            EssayContent = row.EssayContent,
+            SubmittedAt = row.SubmittedAt
+        };
+
+        LoadReviewIntoEditor(review, isAlreadyApproved: true);
+    }
+
+    private static double ParseBand(string text)
+    {
+        // "Band 7.5" -> 7.5 ; "—" -> 0
+        var digits = new string(text.Where(c => char.IsDigit(c) || c == '.').ToArray());
+        return double.TryParse(digits, out var v) ? v : 0;
     }
 
     private void BtnAdminBack_Click(object sender, RoutedEventArgs e)
@@ -1573,19 +2251,53 @@ public partial class MainWindow : Window
     {
         if (ListPendingReviews.SelectedItem is PendingReviewItemDto item)
         {
-            _selectedReview = item;
-            TxtReviewCandidateTitle.Text = $"Thí sinh: {item.CandidateName} • Bài thi {item.SkillType}";
-            TxtReviewAiProposedBadge.Text = $"AI Đề Xuất: Band {item.ProposedBand:0.0}";
-            TxtReviewEssayContent.Text = item.EssayContent;
-            TxtReviewAiFeedback.Text = item.AiFeedback;
+            LoadReviewIntoEditor(item, isAlreadyApproved: false);
+        }
+    }
 
-            SliderTR.Value = item.Criterion1;
-            SliderCC.Value = item.Criterion2;
-            SliderLR.Value = item.Criterion3;
-            SliderGRA.Value = item.Criterion4;
+    /// <summary>
+    /// Nạp một bài vào form chấm điểm bên phải.
+    /// Dùng chung cho tab "Chờ duyệt" và tab "Lịch sử đã chấm" (để SỬA ĐIỂM).
+    /// </summary>
+    private void LoadReviewIntoEditor(PendingReviewItemDto item, bool isAlreadyApproved)
+    {
+        _selectedReview = item;
 
-            TxtTeacherFeedback.Text = $"Bài thi {item.SkillType} đạt yêu cầu. Luận điểm chặt chẽ, vốn từ phù hợp. Đã thẩm định và chốt điểm chính thức.";
-            RecalculateOfficialBand();
+        TxtReviewCandidateTitle.Text = $"Thí sinh: {item.CandidateName} • Bài thi {item.SkillType}" +
+            (isAlreadyApproved ? "  (đã chấm)" : string.Empty);
+
+        TxtReviewAiProposedBadge.Text = $"AI đề xuất: Band {item.ProposedBand:0.0}";
+        TxtReviewEssayContent.Text = item.EssayContent;
+        TxtReviewAiFeedback.Text = item.AiFeedback;
+
+        // Nếu đã duyệt: nạp điểm giảng viên đã chốt (lấy từ 4 tiêu chí đã lưu).
+        SliderTR.Value = Math.Clamp(item.Criterion1, 1, 9);
+        SliderCC.Value = Math.Clamp(item.Criterion2, 1, 9);
+        SliderLR.Value = Math.Clamp(item.Criterion3, 1, 9);
+        SliderGRA.Value = Math.Clamp(item.Criterion4, 1, 9);
+
+        TxtTeacherFeedback.Text = isAlreadyApproved && !string.IsNullOrWhiteSpace(item.AiFeedback)
+            ? "Điều chỉnh điểm nếu cần, sau đó bấm Lưu điểm."
+            : $"Bài thi {item.SkillType} đạt yêu cầu. Luận điểm chặt chẽ, vốn từ phù hợp. Đã thẩm định và chốt điểm chính thức.";
+
+        BtnApproveScore.Content = isAlreadyApproved
+            ? "Lưu điểm đã sửa"
+            : "Phê duyệt & chốt điểm chính thức";
+
+        RecalculateOfficialBand();
+
+        // Chuyển sang tab duyệt điểm để thấy form ngay.
+        if (isAlreadyApproved)
+        {
+            BtnDashTabGrading.Background = (SolidColorBrush)FindResource("PrimaryTeal");
+            BtnDashTabGrading.Foreground = Brushes.White;
+            BtnDashTabHistory.Background = Brushes.Transparent;
+            BtnDashTabHistory.Foreground = (SolidColorBrush)FindResource("BodyText");
+            BtnDashTabProctoring.Background = Brushes.Transparent;
+            BtnDashTabProctoring.Foreground = (SolidColorBrush)FindResource("BodyText");
+            PanelDashProctoring.Visibility = Visibility.Collapsed;
+            PanelDashHistory.Visibility = Visibility.Collapsed;
+            PanelDashGrading.Visibility = Visibility.Visible;
         }
     }
 

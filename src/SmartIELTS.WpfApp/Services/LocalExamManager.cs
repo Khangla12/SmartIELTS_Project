@@ -29,6 +29,39 @@ public class LocalExamManager : IDisposable
     /// <summary>Bus cảnh báo giám thị trong cùng tiến trình (luôn hoạt động, kể cả offline).</summary>
     public IProctoringNotificationBus NotificationBus { get; }
 
+    /// <summary>
+    /// Lấy JWT từ Web API để kết nối SignalR (hub yêu cầu role Teacher/Admin).
+    /// Trả về null nếu API không chạy -> dashboard vẫn dùng cảnh báo cục bộ.
+    /// </summary>
+    public async Task<string?> TryGetApiTokenAsync(string username, string password)
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient
+            {
+                BaseAddress = new Uri(ApiBaseUrl.TrimEnd('/') + "/"),
+                Timeout = TimeSpan.FromSeconds(5)
+            };
+
+            var payload = System.Text.Json.JsonSerializer.Serialize(new { username, password });
+            using var content = new System.Net.Http.StringContent(
+                payload, System.Text.Encoding.UTF8, "application/json");
+
+            using var response = await http.PostAsync("api/auth/login", content);
+            if (!response.IsSuccessStatusCode) return null;
+
+            string raw = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+
+            return doc.RootElement.TryGetProperty("token", out var token) ? token.GetString() : null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SmartIELTS] Không lấy được token qua API: {ex.Message}");
+            return null;
+        }
+    }
+
     public string ApiBaseUrl { get; } = "http://localhost:5294";
 
     public string RecordingFolder { get; } = "recordings";
@@ -197,7 +230,7 @@ public class LocalExamManager : IDisposable
         return dto;
     }
 
-    public async Task<ExamSession> StartSessionAsync()
+    public async Task<StartSessionResultDto> StartSessionAsync()
     {
         if (CurrentUser == null || CurrentExam == null)
             throw new InvalidOperationException("Chưa đăng nhập hoặc chưa nạp đề thi!");
@@ -218,7 +251,7 @@ public class LocalExamManager : IDisposable
             Status = SessionStatus.InProgress
         };
 
-        return CurrentSession;
+        return started;
     }
 
     public async Task<SubmitSkillResultDto> SubmitSkillAsync(SkillType skill, Dictionary<Guid, string>? answers, string? essayContent, string? audioUrl)
@@ -320,6 +353,31 @@ public class LocalExamManager : IDisposable
         return (await dashboard.GetActiveSessionsAsync()).ToList();
     }
 
+    /// <summary>Lịch sử thi của thí sinh đang đăng nhập (màn hình "Coi điểm của tôi").</summary>
+    public async Task<List<CandidateSessionHistoryDto>> GetMyHistoryAsync()
+    {
+        if (CurrentUser == null) return new List<CandidateSessionHistoryDto>();
+
+        await _initDbTask;
+        using var scope = _serviceProvider.CreateScope();
+        var workflow = scope.ServiceProvider.GetRequiredService<IExamWorkflowService>();
+        return (await workflow.GetCandidateHistoryAsync(CurrentUser.Id)).ToList();
+    }
+
+    /// <summary>Lấy kết quả của một ca thi bất kỳ thuộc về thí sinh hiện tại.</summary>
+    public async Task<SessionResultDto?> GetSessionByIdAsync(Guid sessionId)
+    {
+        await _initDbTask;
+        using var scope = _serviceProvider.CreateScope();
+        var workflow = scope.ServiceProvider.GetRequiredService<IExamWorkflowService>();
+
+        // Chỉ cho xem ca thi của chính mình (dùng lại kiểm tra chủ sở hữu).
+        var owner = await workflow.GetSessionOwnerIdAsync(sessionId);
+        if (owner != CurrentUser?.Id) return null;
+
+        return await workflow.GetSessionResultAsync(sessionId);
+    }
+
     public async Task<List<ProctoringLogItemDto>> GetProctoringLogsAsync()
     {
         await _initDbTask;
@@ -333,7 +391,17 @@ public class LocalExamManager : IDisposable
         await _initDbTask;
         using var scope = _serviceProvider.CreateScope();
         var dashboard = scope.ServiceProvider.GetRequiredService<ITeachingDashboardService>();
-        return (await dashboard.GetPendingReviewsAsync()).ToList();
+        // Truyền username để lọc theo phân công (Admin thấy tất cả).
+        return (await dashboard.GetPendingReviewsAsync(CurrentUser?.Username)).ToList();
+    }
+
+    /// <summary>Lịch sử các bài đã chấm (có bộ lọc).</summary>
+    public async Task<List<GradedHistoryItemDto>> GetGradedHistoryAsync(HistoryFilterDto filter)
+    {
+        await _initDbTask;
+        using var scope = _serviceProvider.CreateScope();
+        var dashboard = scope.ServiceProvider.GetRequiredService<ITeachingDashboardService>();
+        return (await dashboard.GetGradedHistoryAsync(filter, CurrentUser?.Username)).ToList();
     }
 
     public async Task<SubmitSkillResultDto> FinalizeSpeakingAsync(List<SpeakingTurnDto> turns, string? audioRecordUrl)
@@ -388,7 +456,7 @@ public class LocalExamManager : IDisposable
             CriterionScore4 = c4,
             ApprovedBandScore = approvedBand,
             TeacherComments = teacherComments
-        });
+        }, CurrentUser?.Username);
     }
 
     /// <summary>Đình chỉ ca thi đang diễn ra (dùng trên dashboard giám thị).</summary>

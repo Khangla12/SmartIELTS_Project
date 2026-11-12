@@ -13,6 +13,9 @@ public static class SmartIeltsDbSeeder
         // Bổ sung kịch bản Speaking cho database cũ (thêm sau khi đã seed lần đầu).
         await SeedSpeakingPromptsIfMissingAsync(context);
 
+        // Bổ sung phân công giảng viên cho database cũ.
+        await SeedAssignmentsIfMissingAsync(context);
+
         if (await context.Users.AnyAsync())
         {
             return; // Already seeded
@@ -316,13 +319,29 @@ public static class SmartIeltsDbSeeder
         await context.Exams.AddAsync(exam);
         await context.SaveChangesAsync();
 
+        // 2b. Phân công giảng viên mẫu phụ trách đề này (để dashboard có dữ liệu).
+        if (!await context.ExamAssignments.AnyAsync())
+        {
+            await context.ExamAssignments.AddAsync(new ExamAssignment
+            {
+                ExamId = exam.Id,
+                TeacherId = teacher.Id,
+                AllowedSkills = "Writing,Speaking",   // hai kỹ năng cần giảng viên duyệt
+                IsActive = true
+            });
+            await context.SaveChangesAsync();
+        }
+
         // 3. Seed Sample Session with Proctoring Logs and Pending Review (for Teacher / Proctor Dashboard)
+        // LƯU Ý: đánh dấu Submitted (không phải InProgress) để không bị dùng lại
+        // làm ca thi thật khi thí sinh đăng nhập. Ca này chỉ để dashboard có dữ liệu mẫu.
         var sampleSession = new ExamSession
         {
             UserId = student.Id,
             ExamId = exam.Id,
             StartTime = DateTime.UtcNow.AddMinutes(-40),
-            Status = SessionStatus.InProgress
+            EndTime = DateTime.UtcNow.AddMinutes(-5),
+            Status = SessionStatus.Submitted
         };
         await context.ExamSessions.AddAsync(sampleSession);
         await context.SaveChangesAsync();
@@ -373,6 +392,42 @@ public static class SmartIeltsDbSeeder
 
         await context.CandidateSubmissions.AddAsync(writingSubmission);
         await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Thêm phân công giảng viên cho database đã tồn tại.
+    /// Chỉ chạy khi bảng ExamAssignments đang rỗng (tính năng thêm sau khi seed lần đầu).
+    /// </summary>
+    private static async Task SeedAssignmentsIfMissingAsync(SmartIeltsDbContext context)
+    {
+        try
+        {
+            if (await context.ExamAssignments.AnyAsync()) return;
+
+            var teacher = await context.Users
+                .FirstOrDefaultAsync(u => u.Username == "teacher");
+
+            var exam = await context.Exams
+                .FirstOrDefaultAsync(e => e.IsActive);
+
+            if (teacher == null || exam == null) return;
+
+            // QUAN TRỌNG: add thẳng vào DbSet (entity có Id sẵn nên không được add qua navigation).
+            await context.ExamAssignments.AddAsync(new ExamAssignment
+            {
+                ExamId = exam.Id,
+                TeacherId = teacher.Id,
+                AllowedSkills = "Writing,Speaking",
+                IsActive = true
+            });
+
+            await context.SaveChangesAsync();
+            Console.WriteLine("[SmartIELTS] Đã seed phân công giảng viên cho database hiện có.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SmartIELTS] Không seed được ExamAssignments: {ex.Message}");
+        }
     }
 
     /// <summary>

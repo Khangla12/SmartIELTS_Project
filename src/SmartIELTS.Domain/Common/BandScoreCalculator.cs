@@ -39,12 +39,43 @@ public static class BandScoreCalculator
             >= 7 => 3.5,
             >= 5 => 3.0,
             >= 3 => 2.5,
-            _ => 2.0
+            >= 1 => 2.0,
+            _ => 1.0   // 0 câu đúng: IELTS không có band 0 (tối thiểu 1.0 cho bài đã nộp)
         };
     }
 
+    /// <summary>
+    /// Quy đổi Reading. Bảng Academic và General Training KHÁC nhau:
+    /// GT khắt khe hơn (cần nhiều câu đúng hơn để đạt cùng band).
+    /// </summary>
     public static double ConvertReadingRawToBand(int rawScore, bool isAcademic = true)
     {
+        if (!isAcademic)
+        {
+            // Bảng General Training (Cambridge).
+            return rawScore switch
+            {
+                >= 40 => 9.0,
+                >= 39 => 8.5,
+                >= 37 => 8.0,
+                >= 36 => 7.5,
+                >= 34 => 7.0,
+                >= 32 => 6.5,
+                >= 30 => 6.0,
+                >= 27 => 5.5,
+                >= 23 => 5.0,
+                >= 19 => 4.5,
+                >= 15 => 4.0,
+                >= 12 => 3.5,
+                >= 9 => 3.0,
+                >= 6 => 2.5,
+                >= 3 => 2.0,
+                >= 1 => 1.5,
+                _ => 1.0
+            };
+        }
+
+        // Bảng Academic.
         return rawScore switch
         {
             >= 39 => 9.0,
@@ -61,7 +92,9 @@ public static class BandScoreCalculator
             >= 8 => 3.5,
             >= 6 => 3.0,
             >= 4 => 2.5,
-            _ => 2.0
+            >= 2 => 2.0,
+            >= 1 => 1.5,
+            _ => 1.0
         };
     }
 

@@ -1,12 +1,14 @@
 using SmartIELTS.Application.DTOs;
 using SmartIELTS.Application.Interfaces;
+using SmartIELTS.WebApi.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace SmartIELTS.WebApi.Controllers;
 
 /// <summary>
-/// Giám khảo ảo cho phần IELTS Speaking: hội thoại nhiều lượt, chấm từng câu trả lời.
+/// Giám khảo ảo cho phần IELTS Speaking: hội thoại nhiều lượt.
+/// Mọi endpoint đều kiểm tra ca thi thuộc về người gọi (trừ Teacher/Admin).
 /// </summary>
 [ApiController]
 [Route("api/speaking")]
@@ -14,16 +16,21 @@ namespace SmartIELTS.WebApi.Controllers;
 public class SpeakingController : ControllerBase
 {
     private readonly ISpeakingSessionService _speaking;
+    private readonly IExamWorkflowService _workflow;
 
-    public SpeakingController(ISpeakingSessionService speaking)
+    public SpeakingController(ISpeakingSessionService speaking, IExamWorkflowService workflow)
     {
         _speaking = speaking;
+        _workflow = workflow;
     }
 
-    /// <summary>Lấy kịch bản các câu hỏi Speaking (Part 1/2/3) kèm text gợi ý cho thí sinh đọc.</summary>
+    /// <summary>Lấy kịch bản câu hỏi Speaking (Part 1/2/3) kèm text gợi ý cho thí sinh đọc.</summary>
     [HttpGet("{sessionId:guid}/prompts")]
     public async Task<IActionResult> GetPrompts(Guid sessionId, CancellationToken ct)
     {
+        if (!await SessionAccessGuard.CanAccessAsync(User, _workflow, sessionId, ct))
+            return Forbid();
+
         try
         {
             return Ok(await _speaking.GetPromptsAsync(sessionId, ct));
@@ -43,6 +50,9 @@ public class SpeakingController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Answer))
             return BadRequest(new { message = "Câu trả lời không được để trống." });
 
+        if (!await SessionAccessGuard.CanAccessAsync(User, _workflow, request.SessionId, ct))
+            return Forbid();
+
         try
         {
             return Ok(await _speaking.EvaluateTurnAsync(request, ct));
@@ -57,6 +67,9 @@ public class SpeakingController : ControllerBase
     [HttpPost("finalize")]
     public async Task<IActionResult> Finalize([FromBody] FinalizeSpeakingRequestDto request, CancellationToken ct)
     {
+        if (!await SessionAccessGuard.CanAccessAsync(User, _workflow, request.SessionId, ct))
+            return Forbid();
+
         try
         {
             var result = await _speaking.FinalizeAsync(request.SessionId, request.Turns, request.AudioRecordUrl, ct);
@@ -66,7 +79,9 @@ public class SpeakingController : ControllerBase
                 result.BandScore,
                 result.RawScore,
                 result.TotalQuestions,
-                result.OverallBandScore,
+                result.IsPendingReview,
+                result.ShowsRawScore,
+                result.StatusMessage,
                 Report = new
                 {
                     result.ReportId,

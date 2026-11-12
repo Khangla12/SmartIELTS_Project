@@ -20,6 +20,7 @@ public class SmartIeltsDbContext : DbContext
     public DbSet<ProctoringLog> ProctoringLogs => Set<ProctoringLog>();
     public DbSet<ExamDraft> ExamDrafts => Set<ExamDraft>();
     public DbSet<SpeakingPrompt> SpeakingPrompts => Set<SpeakingPrompt>();
+    public DbSet<ExamAssignment> ExamAssignments => Set<ExamAssignment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -131,6 +132,23 @@ public class SmartIeltsDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.QuestionText).IsRequired();
             entity.HasIndex(e => new { e.SectionId, e.Part, e.PromptOrder });
+        });
+
+        // ExamAssignment (phân công giảng viên chấm đề)
+        modelBuilder.Entity<ExamAssignment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ExamId, e.TeacherId }).IsUnique();
+
+            entity.HasOne(e => e.Exam)
+                  .WithMany(ex => ex.Assignments)
+                  .HasForeignKey(e => e.ExamId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Teacher)
+                  .WithMany(u => u.Assignments)
+                  .HasForeignKey(e => e.TeacherId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
