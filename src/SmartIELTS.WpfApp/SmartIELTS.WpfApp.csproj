@@ -26,6 +26,11 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- File cấu hình riêng của máy (API key). Không bắt buộc phải có.
+         Dùng Include (không phải Update) để vẫn build được khi file chưa tồn tại. -->
+    <None Include="appsettings.Local.json" Condition="Exists('appsettings.Local.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

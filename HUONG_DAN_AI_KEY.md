@@ -40,7 +40,34 @@ Vì vậy code chỉ đọc key từ **biến môi trường**. Trong `appsettin
 ### Bước 1: Lấy key từ trưởng nhóm
 Key được **chia sẻ riêng** (Zalo / Messenger / Discord), **không** dán vào git, không dán vào issue, không gửi qua PR.
 
-### Bước 2: Set biến môi trường trên máy mình
+### Bước 2: Chọn 1 trong 2 cách đặt key
+
+#### Cách A — File `appsettings.Local.json` (khuyến nghị, dễ nhất)
+
+File này **đã bị `.gitignore` chặn** nên không bao giờ lên git. Code nạp nó **sau** `appsettings.json` nên giá trị sẽ ghi đè.
+
+Tạo file `appsettings.Local.json` ở **cả 2 thư mục** (nếu chỉ dùng WPF thì chỉ cần thư mục WPF):
+
+- `src/SmartIELTS.WpfApp/appsettings.Local.json`
+- `src/SmartIELTS.WebApi/appsettings.Local.json`
+
+Nội dung (copy từ file mẫu `appsettings.Local.example.json`):
+
+```json
+{
+  "Ai": {
+    "Grading": {
+      "ApiKey": "DAN_KEY_THAT_VAO_DAY"
+    }
+  }
+}
+```
+
+Chỉ cần khai báo `ApiKey` — các trường còn lại đã có trong `appsettings.json`.
+
+> **Lưu ý:** file phải nằm cạnh file `.csproj` (thư mục source), **không** phải trong `bin/`. Khi build, MSBuild tự copy sang `bin/`.
+
+#### Cách B — Biến môi trường (không tạo file nào)
 
 **PowerShell — chỉ session hiện tại (tạm thời, an toàn nhất):**
 ```powershell
@@ -59,7 +86,16 @@ set SMARTIELTS_AI_KEY=your-key-here
 ```
 
 **Visual Studio:** Properties → Debug → Environment Variables → thêm `SMARTIELTS_AI_KEY` = key.
-*(Lưu ý: cách này ghi vào `.csproj.user` — file này đã bị `.gitignore` chặn.)*
+*(Cách này ghi vào `.csproj.user` — file này đã bị `.gitignore` chặn.)*
+
+> **Thứ tự ưu tiên:** biến môi trường **thắng** `appsettings.Local.json`, và `appsettings.Local.json` **thắng** `appsettings.json`. Nếu đã set biến môi trường thì sửa file Local sẽ không có tác dụng.
+
+### Bước 2.5: Kiểm tra file Local có bị git thấy không
+
+```powershell
+git status --short
+```
+Nếu **không thấy** `appsettings.Local.json` trong danh sách → đúng, file đã được bảo vệ.
 
 ### Bước 3: Kiểm tra
 ```powershell

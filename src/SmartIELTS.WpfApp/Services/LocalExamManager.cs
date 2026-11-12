@@ -83,6 +83,9 @@ public class LocalExamManager : IDisposable
         var config = new ConfigurationBuilder()
             .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            // File riêng cho máy cá nhân (đã .gitignore): đặt API key ở đây.
+            // Nạp SAU appsettings.json nên giá trị trong file này sẽ ghi đè.
+            .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false)
             .Build();
 
         if (!string.IsNullOrEmpty(config["DatabaseProvider"])) return config;

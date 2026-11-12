@@ -10,6 +10,10 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// File cấu hình riêng của máy cá nhân (đã .gitignore) — dùng để đặt API key AI.
+// Nạp SAU appsettings.json nên giá trị trong file này sẽ ghi đè file chung.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false);
+
 // 1. Add services to container
 builder.Services.AddControllers().AddJsonOptions(options =>
 {

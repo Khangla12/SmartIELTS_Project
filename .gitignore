@@ -32,6 +32,7 @@ $RECYCLE.BIN/
 recordings/
 
 ## Secrets / API keys (khong bao gio commit)
+## File mau: appsettings.Local.example.json (khong chua key that, duoc commit binh thuong)
 .env
 .env.*
 appsettings.Local.json
